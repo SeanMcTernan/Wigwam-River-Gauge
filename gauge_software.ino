@@ -14,7 +14,6 @@ void setup()
   {
     ; // Wait to connect serial port. For native USB port only
   }
-  sonarSerial.begin(9600); //start serial port for maxSonar
 }
 
 void loop()
@@ -23,10 +22,8 @@ void loop()
   if (stringComplete)
   {
     stringComplete = false; //reset sringComplete ready for next reading
-
-    Serial.print("Range ");
     Serial.println(range);
-    //    delay(5000);                                          //delay for debugging
+    delay(5000); //delay for debugging
   }
 }
 
@@ -37,7 +34,7 @@ int serialValueRead()
   int index = 0;
 
   sonarSerial.flush(); // Clear cache ready for next reading
-
+  sonarSerial.begin(9600);
   while (stringComplete == false)
   {
     //Serial.print("reading ");    //debug line
@@ -65,9 +62,26 @@ int serialValueRead()
 
       index = 0;             // Reset index ready for next reading
       stringComplete = true; // Set completion of read to true
+      sonarSerial.end();
       result = atoi(inData); // Changes string data into an integer for use
     }
   }
 
+  return result;
+}
+
+int calculateAverage()
+{
+  int result;
+  int firstReading[4];
+  int index = 0;
+
+  while (index < 4)
+  {
+    firstReading[index] = serialValueRead();
+    Serial.println(firstReading[index]);
+    index++;
+  }
+  result = firstReading[1];
   return result;
 }

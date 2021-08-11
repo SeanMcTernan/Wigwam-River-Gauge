@@ -1,0 +1,6 @@
+{
+    "configuration": "cpu=16MHzatmega328",
+    "board": "arduino:avr:pro",
+    "sketch": "gauge_software.ino",
+    "port": "/dev/tty.usbserial-AB0JPNFO"
+}
