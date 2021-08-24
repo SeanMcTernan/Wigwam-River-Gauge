@@ -25,7 +25,7 @@ void setup()
 
 void loop()
 {
-  int range = serialValueRead2();
+  int range = loopSerialValueRead();
   if (stringComplete2)
   {
     stringComplete2 = false;                      //reset sringComplete ready for next reading
@@ -34,7 +34,7 @@ void loop()
   }
 }
 
-int serialValueRead()
+int setupSerialValueRead()
 {
   int result;
   char inData[4]; //char array to read data into
@@ -72,7 +72,7 @@ int serialValueRead()
   return result;
 }
 
-int serialValueRead2()
+int loopSerialValueRead()
 {
   int result;
   char inData[4]; //char array to read data into
@@ -118,7 +118,7 @@ int calculateAverage()
 
   while (index < 4)
   {
-    firstReading[index] = serialValueRead();
+    firstReading[index] = loopSerialValueRead();
     Serial.println(firstReading[index]);
     index++;
   }
@@ -135,7 +135,7 @@ int calculateZero() //Calculate the base river level with 4 readings over the co
   int readingIndex = 0;
   while (readingIndex < 4)
   {
-    readings[readingIndex] = serialValueRead();
+    readings[readingIndex] = setupSerialValueRead();
     if (stringComplete)
     {
       stringComplete = false;
