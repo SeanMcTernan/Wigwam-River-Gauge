@@ -28,7 +28,7 @@
             "cStandard": "c11",
             "cppStandard": "c++11",
             "defines": [
-                "F_CPU=16000000L",
+                "F_CPU=8000000L",
                 "ARDUINO=10813",
                 "ARDUINO_AVR_PRO",
                 "ARDUINO_ARCH_AVR",

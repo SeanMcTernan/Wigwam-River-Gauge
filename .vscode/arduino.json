@@ -1,7 +1,7 @@
 {
-    "configuration": "cpu=16MHzatmega328",
+    "configuration": "cpu=8MHzatmega328",
     "board": "arduino:avr:pro",
     "programmer": "arduino:avrisp",
-    "port": "/dev/cu.usbserial-AB0JPNFO",
+    "port": "/dev/cu.usbserial-1440",
     "sketch": "gauge_software.ino"
 }
