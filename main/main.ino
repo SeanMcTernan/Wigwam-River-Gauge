@@ -3,9 +3,11 @@
 #define MINUTE_VALUE 60
 #define HOUR_VALUE 29
 #define REPORT_PERIOD 8
-//Set the variables for the sensor
-static const int sensorPin = 9;
-long range;
+//Set the variables for the sensor reading
+static const int sensorReadPin = 7;
+int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+long pulse;
+int modE;
 
 //Set the variables for timing
 int minuteCount = 0;
@@ -36,8 +38,8 @@ void setup()
         ; // Wait to connect serial port. For native USB port only || Remove once live
     }
     //Confirgure the pins used
-    pinMode(sensorPin, OUTPUT);
-    digitalWrite(sensorPin, LOW);
+    pinMode(sensorReadPin, INPUT);
+    pulseIn(sensorReadPin, LOW);
 }
 
 void loop()
@@ -57,7 +59,7 @@ void loop()
         if (measuring)
         {
             // Take a 5 minute river gauge average
-            runSum = (analogRead(A0) * 2) + runSum;
+            runSum = (pulseIn(sensorReadPin, HIGH) / 58) + runSum;
             Serial.println((String) "Run sum is " + runSum);
             samples++;
 
@@ -68,7 +70,7 @@ void loop()
                 runSum = 0;
                 samples = 0;
                 measuring = false;
-                digitalWrite(sensorPin, LOW);
+                pulseIn(sensorReadPin, LOW);
             }
         }
     }
@@ -79,8 +81,6 @@ void loop()
         hourCount++;
         measuring = true;
         Serial.println((String) "New reading at hour " + hourCount);
-        digitalWrite(sensorPin, HIGH);
-        delay(5000);
     }
 
     if (hourCount > REPORT_PERIOD - 1)
