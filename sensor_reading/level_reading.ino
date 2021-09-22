@@ -1,8 +1,6 @@
 #include <SoftwareSerial.h>
-
 #define txPin 11 //define pins used for software serial for sonar
 #define rxPin 10
-
 SoftwareSerial sonarSerial(rxPin, txPin, true); //define serial port for recieving data, output from maxSonar is inverted requiring true to be set.
 boolean loopStringComplete = false;
 
@@ -61,21 +59,5 @@ int loopSerialValueRead()
     }
   }
 
-  return result;
-}
-
-int calculateAverage()
-{
-  int result;
-  int firstReading[4];
-  int index = 0;
-
-  while (index < 4)
-  {
-    firstReading[index] = loopSerialValueRead();
-    Serial.println(firstReading[index]);
-    index++;
-  }
-  result = firstReading[1];
   return result;
 }

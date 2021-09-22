@@ -1,13 +1,15 @@
 #include <SoftwareSerial.h>
 
-#define MINUTE_VALUE 60
-#define HOUR_VALUE 29
+#define MINUTE_VALUE 10
+#define HOUR_VALUE 60
 #define REPORT_PERIOD 8
 //Set the variables for the sensor reading
 static const int sensorReadPin = 7;
-int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 long pulse;
 int modE;
+int arraysize = 11;
+bool measuring;
 
 //Set the variables for timing
 int minuteCount = 0;
@@ -25,13 +27,11 @@ bool beginOnce;
 char txBuffer[50] = {0};
 char rxBuffer[50] = {0};
 
-long runSum;
-int samples;
-bool measuring;
-
 void setup()
 {
+    //Set the initial time that the gauge was turned on
     beginningOfTime = millis();
+    //Step for Serial Debugging only
     Serial.begin(9600);
     while (!Serial)
     {
@@ -44,34 +44,40 @@ void setup()
 
 void loop()
 {
+    //Set current time the loop starts
     currentTime = millis();
+
+    //Prevent Millis Rollover
     if ((currentTime - beginningOfTime) < 0)
     {
         beginningOfTime = currentTime;
     }
 
+    //It has been 1 minute, update the minute count and check if a reading is required
     if ((currentTime - beginningOfTime) > MINUTE_VALUE)
-    { /*1 min*/
+    {
+        //Counts up to 1hr
         minuteCount++;
         beginningOfTime = millis();
 
-        //other things to do on a 1 minute interval
+        //Check if a measurement is required
         if (measuring)
         {
-            // Take a 5 minute river gauge average
-            runSum = (pulseIn(sensorReadPin, HIGH) / 58) + runSum;
-            Serial.println((String) "Run sum is " + runSum);
-            samples++;
-
-            //We have 5 samples report the average to the levels array and shut off the sensor
-            if (samples >= 10)
+            // Gather 11 samples for rangeValue array over 55 Seconds
+            for (int i = 0; i < arraysize; i++)
             {
-                levels[hourCount] = runSum / samples;
-                runSum = 0;
-                samples = 0;
-                measuring = false;
-                pulseIn(sensorReadPin, LOW);
+                pulse = pulseIn(sensorReadPin, HIGH);
+                rangevalue[i] = pulse / 58;
+                delay(10);
             }
+
+            //We have 11 samples report the median to the levels array and shut off the sensor
+            isort(rangevalue, arraysize);
+            modE = mode(rangevalue, arraysize);
+            levels[hourCount] = modE;
+            Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]);
+            measuring = false;
+            pulseIn(sensorReadPin, LOW);
         }
     }
 
@@ -102,7 +108,118 @@ void loop()
         txMsgLen = lvl_message.length() + 1;
         lvl_message.toCharArray(txBuffer, txMsgLen);
         Serial.println((String) "txBuffer is " + txBuffer);
-        Serial.println((String) "txMsgLen is " + txMsgLen);
         hourCount = 0;
+    }
+}
+
+/*-----------Functions------------*/
+
+//Function to print the arrays.
+
+void printArray(int *a, int n)
+
+{
+
+    for (int i = 0; i < n; i++)
+
+    {
+
+        Serial.print(a[i], DEC);
+
+        Serial.print(' ');
+    }
+
+    Serial.println();
+}
+
+//Sorting function
+
+// sort function (Author: Bill Gentles, Nov. 12, 2010)
+
+void isort(int *a, int n)
+{
+
+    //  *a is an array pointer function
+
+    for (int i = 1; i < n; ++i)
+
+    {
+
+        int j = a[i];
+
+        int k;
+
+        for (k = i - 1; (k >= 0) && (j < a[k]); k--)
+
+        {
+
+            a[k + 1] = a[k];
+        }
+
+        a[k + 1] = j;
+    }
+}
+
+//Mode function, returning the mode or median.
+
+int mode(int *x, int n)
+{
+
+    int i = 0;
+
+    int count = 0;
+
+    int maxCount = 0;
+
+    int mode = 0;
+
+    int bimodal;
+
+    int prevCount = 0;
+
+    while (i < (n - 1))
+    {
+
+        prevCount = count;
+
+        count = 0;
+
+        while (x[i] == x[i + 1])
+        {
+
+            count++;
+
+            i++;
+        }
+
+        if (count > prevCount & count > maxCount)
+        {
+
+            mode = x[i];
+
+            maxCount = count;
+
+            bimodal = 0;
+        }
+
+        if (count == 0)
+        {
+
+            i++;
+        }
+
+        if (count == maxCount)
+        { //If the dataset has 2 or more modes.
+
+            bimodal = 1;
+        }
+
+        if (mode == 0 || bimodal == 1)
+        { //Return the median if there is no mode.
+
+            mode = x[(n / 2)];
+        }
+
+        return mode;
     }
 }
