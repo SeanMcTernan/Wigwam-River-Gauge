@@ -29,19 +29,23 @@ void setup()
   int err;
 
   // Start the console serial port
-  Serial.begin(115200);
-  while (!Serial); // Wait for the user to open the serial monitor
+  Serial.begin(9600);
+  while (!Serial)
+    ; // Wait for the user to open the serial monitor
   Serial.println(F("Iridium SBD BasicSend I2C"));
 
   //empty the serial buffer
-  while(Serial.available() > 0) Serial.read();
+  while (Serial.available() > 0)
+    Serial.read();
 
   //wait for the user to press any key before beginning
   Serial.println(F("Press any key to start example."));
-  while(Serial.available() == 0);
+  while (Serial.available() == 0)
+    ;
 
   //clean up
-  while(Serial.available() > 0) Serial.read();
+  while (Serial.available() > 0)
+    Serial.read();
 
   // Start the I2C wire port connected to the satellite modem
   Wire.begin();
@@ -51,7 +55,8 @@ void setup()
   if (!modem.isConnected())
   {
     Serial.println(F("Qwiic Iridium is not connected! Please check wiring. Freezing."));
-    while(1);
+    while (1)
+      ;
   }
 
   // Enable the supercapacitor charger
@@ -88,9 +93,9 @@ void setup()
   err = modem.getFirmwareVersion(version, sizeof(version));
   if (err != ISBD_SUCCESS)
   {
-     Serial.print(F("FirmwareVersion failed: error "));
-     Serial.println(err);
-     return;
+    Serial.print(F("FirmwareVersion failed: error "));
+    Serial.println(err);
+    return;
   }
   Serial.print(F("Firmware Version is "));
   Serial.print(version);
@@ -101,9 +106,9 @@ void setup()
   err = modem.getIMEI(IMEI, sizeof(IMEI));
   if (err != ISBD_SUCCESS)
   {
-     Serial.print(F("getIMEI failed: error "));
-     Serial.println(err);
-     return;
+    Serial.print(F("getIMEI failed: error "));
+    Serial.println(err);
+    return;
   }
   Serial.print(F("IMEI is "));
   Serial.print(IMEI);
@@ -126,7 +131,7 @@ void setup()
 
   // Send the message
   Serial.println(F("Trying to send the message.  This might take several minutes."));
-  err = modem.sendSBDText("Hello, world!");
+  err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
   if (err != ISBD_SUCCESS)
   {
     Serial.print(F("sendSBDText failed: error "));

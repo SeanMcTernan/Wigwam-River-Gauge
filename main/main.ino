@@ -2,7 +2,7 @@
 
 #define MINUTE_VALUE 10
 #define HOUR_VALUE 60
-#define REPORT_PERIOD 12
+#define REPORT_PERIOD 8
 //Set the variables for the sensor reading
 static const int sensorReadPin = 7;
 int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -17,11 +17,11 @@ int hourCount = 0;
 unsigned long beginningOfTime;
 unsigned long currentTime;
 
-//VARs for sending the message
+//Variables for sending the message
 String lvl_message;
 int levels[REPORT_PERIOD] = {0};
 int txMsgLen;
-int j, i = 0;
+int j = 0;
 bool beginOnce;
 char txBuffer[50] = {0};
 char rxBuffer[50] = {0};
@@ -74,7 +74,7 @@ void loop()
             isort(rangevalue, arraysize);
             modE = mode(rangevalue, arraysize);
             levels[hourCount] = modE;
-            Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]);
+            /* DEBUG: Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]); */
             measuring = false;
             pulseIn(sensorReadPin, LOW);
         }
@@ -89,7 +89,7 @@ void loop()
     }
 
     //8 Hours has passed, create the levels array and send it to the satelite. Reset the hours count to 0 to start the 8 hour cycle again.
-    if (hourCount > REPORT_PERIOD - 1)
+    if (hourCount >= REPORT_PERIOD)
     {
         lvl_message = "[";
         for (j = 0; j < REPORT_PERIOD; j++)
@@ -107,7 +107,7 @@ void loop()
 
         txMsgLen = lvl_message.length() + 1;
         lvl_message.toCharArray(txBuffer, txMsgLen);
-        Serial.println(txBuffer);
+        /* DEBUG: Serial.println(txBuffer); */
         hourCount = 0;
     }
 }
