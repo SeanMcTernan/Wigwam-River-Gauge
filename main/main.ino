@@ -1,8 +1,15 @@
 #include <SoftwareSerial.h>
+#include <IridiumSBD.h> // Click here to get the library: http://librarymanager/All#IridiumSBDI2C
+#include <Wire.h>       //Needed for I2C communication
 
+#define IridiumWire Wire
 #define MINUTE_VALUE 10
 #define HOUR_VALUE 60
 #define REPORT_PERIOD 8
+
+// Declare the IridiumSBD object using default I2C address
+IridiumSBD modem(IridiumWire);
+
 //Set the variables for the sensor reading
 static const int sensorReadPin = 7;
 int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -28,17 +35,41 @@ char rxBuffer[50] = {0};
 
 void setup()
 {
+    int err;
     //Set the initial time that the gauge was turned on
     beginningOfTime = millis();
     //Step for Serial Debugging only
     Serial.begin(9600);
     while (!Serial)
-    {
         ; // Wait to connect serial port. For native USB port only || Remove once live
-    }
+
     //Confirgure the pins used
     pinMode(sensorReadPin, INPUT);
     pulseIn(sensorReadPin, LOW);
+
+    // Start the I2C wire port connected to the satellite modem
+    Wire.begin();
+    Wire.setClock(400000); //Set I2C clock speed to 400kHz
+
+    while (!modem.checkSuperCapCharger())
+    {
+        Serial.println(F("Waiting for supercapacitors to charge..."));
+        delay(1000);
+    }
+    Serial.println(F("Supercapacitors charged!"));
+
+    // Enable power for the 9603N
+    Serial.println(F("Enabling 9603N power..."));
+    modem.enable9603Npower(true);
+
+    Serial.println(F("Starting modem..."));
+    modem.setPowerProfile(IridiumSBD::DEFAULT_POWER_PROFILE); // Set the default power source for the modem
+    // Disable 9603N power
+    Serial.println(F("Disabling 9603N power..."));
+    modem.enable9603Npower(false);
+    //Turn off the modem
+    Serial.println(F("Putting modem to sleep and start the loop"));
+    modem.sleep();
 }
 
 void loop()
@@ -74,7 +105,7 @@ void loop()
             isort(rangevalue, arraysize);
             modE = mode(rangevalue, arraysize);
             levels[hourCount] = modE;
-            /* DEBUG: Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]); */
+            Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]);
             measuring = false;
             pulseIn(sensorReadPin, LOW);
         }
@@ -107,7 +138,7 @@ void loop()
 
         txMsgLen = lvl_message.length() + 1;
         lvl_message.toCharArray(txBuffer, txMsgLen);
-        /* DEBUG: Serial.println(txBuffer); */
+        Serial.println(txBuffer);
         hourCount = 0;
     }
 }
