@@ -3,9 +3,9 @@
 #include <Wire.h>       //Needed for I2C communication
 
 #define IridiumWire Wire
-#define MINUTE_VALUE 10
+#define MINUTE_VALUE 5454
 #define HOUR_VALUE 60
-#define REPORT_PERIOD 8
+#define REPORT_PERIOD 4
 
 // Declare the IridiumSBD object using default I2C address
 IridiumSBD modem(IridiumWire);
@@ -30,12 +30,11 @@ int levels[REPORT_PERIOD] = {0};
 int txMsgLen;
 int j = 0;
 bool beginOnce;
-char txBuffer[50] = {0};
+char satMessage[50] = {0};
 char rxBuffer[50] = {0};
 
 void setup()
 {
-    int err;
     //Set the initial time that the gauge was turned on
     beginningOfTime = millis();
     //Step for Serial Debugging only
@@ -46,6 +45,14 @@ void setup()
     //Confirgure the pins used
     pinMode(sensorReadPin, INPUT);
     pulseIn(sensorReadPin, LOW);
+
+    /*
+    * Initiating the satellite modem
+    *
+    * Below we initiate the satellite modem. We first tell the arduino to 
+    * communicate with it via I2C, we then charge the supercapacitors. 
+    * Finally, we turn on the modem and set the power profile to be the default.
+    */
 
     // Start the I2C wire port connected to the satellite modem
     Wire.begin();
@@ -61,7 +68,7 @@ void setup()
     // Enable power for the 9603N
     Serial.println(F("Enabling 9603N power..."));
     modem.enable9603Npower(true);
-
+    // Set the modem power profile to be the default power profile
     Serial.println(F("Starting modem..."));
     modem.setPowerProfile(IridiumSBD::DEFAULT_POWER_PROFILE); // Set the default power source for the modem
     // Disable 9603N power
@@ -70,6 +77,84 @@ void setup()
     //Turn off the modem
     Serial.println(F("Putting modem to sleep and start the loop"));
     modem.sleep();
+}
+
+void sendSatelliteMessage()
+{
+    int signalQuality = -1;
+    int err;
+
+    // Enable the supercapacitor charger
+    Serial.println(F("Enabling the supercapacitor charger..."));
+    modem.enableSuperCapCharger(true);
+
+    // Wait for the supercapacitor charger PGOOD signal to go high
+    while (!modem.checkSuperCapCharger())
+    {
+        Serial.println(F("Waiting for supercapacitors to charge..."));
+        delay(1000);
+    }
+    Serial.println(F("Supercapacitors charged!"));
+
+    // Enable power for the 9603N
+    Serial.println(F("Enabling 9603N power..."));
+    modem.enable9603Npower(true);
+
+    // Begin satellite modem operation
+    Serial.println(F("Starting modem..."));
+    err = modem.begin();
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("Begin failed: error "));
+        Serial.println(err);
+        if (err == ISBD_NO_MODEM_DETECTED)
+            Serial.println(F("No modem detected: check wiring."));
+        return;
+    }
+
+    // Send the message
+    Serial.println(F("Trying to send the message.  This might take several minutes."));
+    err = modem.sendSBDText(satMessage);
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("sendSBDText failed: error "));
+        Serial.println(err);
+        if (err == ISBD_SENDRECEIVE_TIMEOUT)
+            Serial.println(F("Message Sending Failed"));
+    }
+
+    else
+    {
+        Serial.println(F("Satellite message sent!"));
+    }
+
+    // Clear the Mobile Originated message buffer
+    Serial.println(F("Clearing the MO buffer."));
+    err = modem.clearBuffers(ISBD_CLEAR_MO); // Clear MO buffer
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("clearBuffers failed: error "));
+        Serial.println(err);
+    }
+
+    // Power down the modem
+    Serial.println(F("Putting the 9603N to sleep."));
+    err = modem.sleep();
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("sleep failed: error "));
+        Serial.println(err);
+    }
+
+    // Disable 9603N power
+    Serial.println(F("Disabling 9603N power..."));
+    modem.enable9603Npower(false);
+
+    // Disable the supercapacitor charger
+    Serial.println(F("Disabling the supercapacitor charger..."));
+    modem.enableSuperCapCharger(false);
+
+    Serial.println(F("Message Send Function Complete"));
 }
 
 void loop()
@@ -98,7 +183,7 @@ void loop()
             {
                 pulse = pulseIn(sensorReadPin, HIGH);
                 rangevalue[i] = pulse / 58;
-                delay(10);
+                delay(5000);
             }
 
             //We have 11 samples report the median to the levels array and shut off the sensor
@@ -137,14 +222,13 @@ void loop()
         }
 
         txMsgLen = lvl_message.length() + 1;
-        lvl_message.toCharArray(txBuffer, txMsgLen);
-        Serial.println(txBuffer);
+        lvl_message.toCharArray(satMessage, txMsgLen);
+        sendSatelliteMessage();
         hourCount = 0;
     }
 }
 
 //Sorting function
-
 void isort(int *a, int n)
 {
     //  *a is an array pointer function

@@ -130,20 +130,20 @@ void setup()
   Serial.println(F("."));
 
   // Send the message
-  Serial.println(F("Trying to send the message.  This might take several minutes."));
-  err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("sendSBDText failed: error "));
-    Serial.println(err);
-    if (err == ISBD_SENDRECEIVE_TIMEOUT)
-      Serial.println(F("Try again with a better view of the sky."));
-  }
-
-  else
-  {
-    Serial.println(F("Hey, it worked!"));
-  }
+  //  Serial.println(F("Trying to send the message.  This might take several minutes."));
+  //  err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
+  //  if (err != ISBD_SUCCESS)
+  //  {
+  //    Serial.print(F("sendSBDText failed: error "));
+  //    Serial.println(err);
+  //    if (err == ISBD_SENDRECEIVE_TIMEOUT)
+  //      Serial.println(F("Try again with a better view of the sky."));
+  //  }
+  //
+  //  else
+  //  {
+  //    Serial.println(F("Hey, it worked!"));
+  //  }
 
   // Clear the Mobile Originated message buffer
   Serial.println(F("Clearing the MO buffer."));
