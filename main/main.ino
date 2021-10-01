@@ -3,9 +3,9 @@
 #include <Wire.h>       //Needed for I2C communication
 
 #define IridiumWire Wire
-#define MINUTE_VALUE 5454
+#define MINUTE_VALUE 60000
 #define HOUR_VALUE 60
-#define REPORT_PERIOD 4
+#define REPORT_PERIOD 8
 
 // Declare the IridiumSBD object using default I2C address
 IridiumSBD modem(IridiumWire);
@@ -29,9 +29,7 @@ String lvl_message;
 int levels[REPORT_PERIOD] = {0};
 int txMsgLen;
 int j = 0;
-bool beginOnce;
 char satMessage[50] = {0};
-char rxBuffer[50] = {0};
 
 void setup()
 {
@@ -51,7 +49,7 @@ void setup()
     *
     * Below we initiate the satellite modem. We first tell the arduino to 
     * communicate with it via I2C, we then charge the supercapacitors. 
-    * Finally, we turn on the modem and set the power profile to be the default.
+    * Finally, we turn on the modem and set the power profile to be the default, then turn the system off.
     */
 
     // Start the I2C wire port connected to the satellite modem
@@ -90,10 +88,7 @@ void sendSatelliteMessage()
 
     // Wait for the supercapacitor charger PGOOD signal to go high
     while (!modem.checkSuperCapCharger())
-    {
-        Serial.println(F("Waiting for supercapacitors to charge..."));
-        delay(1000);
-    }
+        ;
     Serial.println(F("Supercapacitors charged!"));
 
     // Enable power for the 9603N
@@ -114,6 +109,7 @@ void sendSatelliteMessage()
 
     // Send the message
     Serial.println(F("Trying to send the message.  This might take several minutes."));
+    Serial.println((String) "The message being sent to the satellite is " + satMessage);
     err = modem.sendSBDText(satMessage);
     if (err != ISBD_SUCCESS)
     {
@@ -178,21 +174,21 @@ void loop()
         //Check if a measurement is required
         if (measuring)
         {
-            // Gather 11 samples for rangeValue array over 55 Seconds
-            for (int i = 0; i < arraysize; i++)
-            {
-                pulse = pulseIn(sensorReadPin, HIGH);
-                rangevalue[i] = pulse / 58;
-                delay(5000);
-            }
+            // Gather 11 samples for rangeValue array over 11 minutes
+            pulse = pulseIn(sensorReadPin, HIGH);
+            rangevalue[minuteCount - 1] = pulse / 58;
+            pulseIn(sensorReadPin, LOW);
+            Serial.println((String) "Reading at minute count " + (minuteCount) + " is " + (pulse / 58));
 
             //We have 11 samples report the median to the levels array and shut off the sensor
-            isort(rangevalue, arraysize);
-            modE = mode(rangevalue, arraysize);
-            levels[hourCount] = modE;
-            Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]);
-            measuring = false;
-            pulseIn(sensorReadPin, LOW);
+            if (minuteCount > 10)
+            {
+                isort(rangevalue, arraysize);
+                modE = mode(rangevalue, arraysize);
+                levels[hourCount] = modE;
+                Serial.println((String) "The mode at hour " + (hourCount) + " is " + levels[hourCount]);
+                measuring = false;
+            }
         }
     }
 
