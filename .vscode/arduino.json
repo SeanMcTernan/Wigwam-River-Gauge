@@ -1,7 +1,6 @@
 {
-    "configuration": "cpu=8MHzatmega328",
-    "board": "arduino:avr:pro",
+    "board": "arduino:avr:uno",
     "programmer": "arduino:avrisp",
-    "port": "/dev/cu.usbserial-1430",
-    "sketch": "main/main.ino"
+    "port": "/dev/tty.usbmodem1101",
+    "sketch": "rtc_test/rtc_test.ino"
 }
