@@ -1,12 +1,10 @@
 
 #include <Wire.h>
 #include "ds3231.h"
-#include <IridiumSBD.h>
 #include <avr/sleep.h>
 
 //** Set Arduino Values **//
-// Set a blink counter for setup purposes
-#define BLINK_COUNT 5
+
 // RTC Wakeup Pin
 #define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
 // Sonic Sensor Pin
@@ -14,9 +12,6 @@
 // Satellite Modem Pin
 // Set the send sat signal boolean
 boolean sendSatSignal = false;
-// Declare the IridiumSBD object using default I2C address
-#define IridiumWire Wire
-IridiumSBD modem(IridiumWire);
 // Set the Value for Reporting Period
 #define REPORT_PERIOD 12
 // The number of readings to take before sending the data
@@ -29,6 +24,8 @@ int rangevalue[] = {0, 0, 0, 0, 0};
 int modE;
 // The levels array for an individual hour.
 int arraysize = 5;
+// Levels array to send to the satellite
+int levels[REPORT_PERIOD] = {0};
 
 // DS3231 alarm time
 uint8_t wake_HOUR;
@@ -38,37 +35,20 @@ uint8_t wake_SECOND;
 
 struct ts t;
 
-// Variables for sending the message
-String lvl_message;
-int levels[REPORT_PERIOD] = {0};
-int txMsgLen;
-int j = 0;
-char satMessage[50] = {0};
-
 // Standard setup( ) function
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Set the sonic sensor as an input
   pinMode(sonicSensor, INPUT);
   digitalWrite(sonicSensor, LOW);
-  // Set the built in LED as an output so we can see when the device is awake
-  pinMode(LED_BUILTIN, OUTPUT);
+
   // Clear the current alarm (puts DS3231 INT high)
   Wire.begin();
-  Wire.setClock(400000);
   DS3231_init(DS3231_CONTROL_INTCN);
   DS3231_clear_a1f();
 
-  // Blink the LED 5 times to show the device is awake then turn it off and print Setup Completed
-  for (int i = 0; i < BLINK_COUNT; i++)
-  {
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(500);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(500);
-  }
   Serial.println("Setup completed.");
 }
 
@@ -81,8 +61,10 @@ void loop()
   Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
   // Print a t.hour to the serial monitor
   Serial.println((String) "Current Hour: " + t.hour);
+  // print a boolean expression to the serial monitor that asks if the hour == 20
+  Serial.println((String) "Is the hour 20: " + (t.hour == 20));
 
-  if ((t.hour == 8 || t.hour == 20))
+  if ((t.hour == 8 || t.hour == 21))
   {
     sendSatSignal = true;
   }
@@ -91,25 +73,7 @@ void loop()
   {
     Serial.println((String) "Taking Final Reading ");
     takeAReading();
-    lvl_message = "[";
-    for (j = 0; j < REPORT_PERIOD; j++)
-    {
-      lvl_message.concat(levels[j]);
-      if (j < (REPORT_PERIOD - 1))
-      {
-        lvl_message.concat(",");
-      }
-      else
-      {
-        lvl_message.concat("]");
-      }
-    }
-
-    txMsgLen = lvl_message.length() + 1;
-    lvl_message.toCharArray(satMessage, txMsgLen);
-    // Removing sending satalite message for testing replacing with serial print
-    Serial.println((String) "The message being sent to the satellite is " + satMessage);
-    sendSatelliteMessage();
+    Serial.println((String) "Sending sat signal");
     sendSatSignal = false;
     hoursCount = 0;
     goToSleep();
@@ -288,10 +252,8 @@ void takeAReading()
   for (int i = 0; i < arraysize; i++)
   {
     pulse = pulseIn(sonicSensor, HIGH);
-    digitalWrite(LED_BUILTIN, HIGH);
     rangevalue[i] = pulse / 58;
     Serial.println((String) "Reading is " + (pulse / 58));
-    // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
     delay(5000);
   }
   // We have 5 samples report the median to the levels array
@@ -301,81 +263,4 @@ void takeAReading()
   Serial.println((String) "The mode at " + (hoursCount) + " is " + levels[hoursCount]);
   // Shut off the sensor
   pulseIn(sonicSensor, LOW);
-  digitalWrite(LED_BUILTIN, LOW);
-}
-
-void sendSatelliteMessage()
-{
-  int signalQuality = -1;
-  int err;
-
-  // Enable the supercapacitor charger
-  Serial.println(F("Enabling the supercapacitor charger..."));
-  modem.enableSuperCapCharger(true);
-
-  // Wait for the supercapacitor charger PGOOD signal to go high
-  while (!modem.checkSuperCapCharger())
-    ;
-  Serial.println(F("Supercapacitors charged!"));
-
-  // Enable power for the 9603N
-  Serial.println(F("Enabling 9603N power..."));
-  modem.enable9603Npower(true);
-
-  // Begin satellite modem operation
-  Serial.println(F("Starting modem..."));
-  err = modem.begin();
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("Begin failed: error "));
-    Serial.println(err);
-    if (err == ISBD_NO_MODEM_DETECTED)
-      Serial.println(F("No modem detected: check wiring."));
-    return;
-  }
-
-  // Send the message
-  Serial.println(F("Trying to send the message.  This might take several minutes."));
-  Serial.println((String) "The message being sent to the satellite is " + satMessage);
-  err = modem.sendSBDText(satMessage);
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("sendSBDText failed: error "));
-    Serial.println(err);
-    if (err == ISBD_SENDRECEIVE_TIMEOUT)
-      Serial.println(F("Message Sending Failed"));
-  }
-
-  else
-  {
-    Serial.println(F("Satellite message sent!"));
-  }
-
-  // Clear the Mobile Originated message buffer
-  Serial.println(F("Clearing the MO buffer."));
-  err = modem.clearBuffers(ISBD_CLEAR_MO); // Clear MO buffer
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("clearBuffers failed: error "));
-    Serial.println(err);
-  }
-
-  // Power down the modem
-  Serial.println(F("Putting the 9603N to sleep."));
-  err = modem.sleep();
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("sleep failed: error "));
-    Serial.println(err);
-  }
-
-  // Disable 9603N power
-  Serial.println(F("Disabling 9603N power..."));
-  modem.enable9603Npower(false);
-
-  // Disable the supercapacitor charger
-  Serial.println(F("Disabling the supercapacitor charger..."));
-  modem.enableSuperCapCharger(false);
-
-  Serial.println(F("Message Send Function Complete"));
 }

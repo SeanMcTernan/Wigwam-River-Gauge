@@ -29,27 +29,27 @@ void setup()
   int err;
 
   // Start the console serial port
-  Serial.begin(9600);
+  Serial.begin(115200);
   while (!Serial)
     ; // Wait for the user to open the serial monitor
   Serial.println(F("Iridium SBD BasicSend I2C"));
 
-  //empty the serial buffer
+  // empty the serial buffer
   while (Serial.available() > 0)
     Serial.read();
 
-  //wait for the user to press any key before beginning
+  // wait for the user to press any key before beginning
   Serial.println(F("Press any key to start example."));
   while (Serial.available() == 0)
     ;
 
-  //clean up
+  // clean up
   while (Serial.available() > 0)
     Serial.read();
 
   // Start the I2C wire port connected to the satellite modem
   Wire.begin();
-  Wire.setClock(400000); //Set I2C clock speed to 400kHz
+  Wire.setClock(400000); // Set I2C clock speed to 400kHz
 
   // Check that the Qwiic Iridium is attached
   if (!modem.isConnected())
@@ -130,20 +130,20 @@ void setup()
   Serial.println(F("."));
 
   // Send the message
-  //  Serial.println(F("Trying to send the message.  This might take several minutes."));
-  //  err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
-  //  if (err != ISBD_SUCCESS)
-  //  {
-  //    Serial.print(F("sendSBDText failed: error "));
-  //    Serial.println(err);
-  //    if (err == ISBD_SENDRECEIVE_TIMEOUT)
-  //      Serial.println(F("Try again with a better view of the sky."));
-  //  }
-  //
-  //  else
-  //  {
-  //    Serial.println(F("Hey, it worked!"));
-  //  }
+  Serial.println(F("Trying to send the message.  This might take several minutes."));
+  err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
+  if (err != ISBD_SUCCESS)
+  {
+    Serial.print(F("sendSBDText failed: error "));
+    Serial.println(err);
+    if (err == ISBD_SENDRECEIVE_TIMEOUT)
+      Serial.println(F("Try again with a better view of the sky."));
+  }
+
+  else
+  {
+    Serial.println(F("Hey, it worked!"));
+  }
 
   // Clear the Mobile Originated message buffer
   Serial.println(F("Clearing the MO buffer."));

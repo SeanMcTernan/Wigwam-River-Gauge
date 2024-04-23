@@ -1,28 +1,42 @@
-#include <SoftwareSerial.h>
-#include <IridiumSBD.h> // Click here to get the library: http://librarymanager/All#IridiumSBDI2C
-#include <Wire.h>       //Needed for I2C communication
+#include <Wire.h>
+#include "ds3231.h"
+#include <IridiumSBD.h>
+#include <avr/sleep.h>
 
-#define IridiumWire Wire
-#define MINUTE_VALUE 60000
-#define HOUR_VALUE 60
-#define REPORT_PERIOD 8
-
+//** Set Arduino Values **//
+// Set a blink counter for setup purposes
+#define BLINK_COUNT 5
+// RTC Wakeup Pin
+#define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
+// Sonic Sensor Pin
+#define sonicSensor 7
+// Satellite Modem Pin
+// Set the send sat signal boolean
+boolean sendSatSignal = false;
 // Declare the IridiumSBD object using default I2C address
+#define IridiumWire Wire
 IridiumSBD modem(IridiumWire);
 
-// Set the variables for the sensor reading
-static const int sensorReadPin = 7;
-int rangevalue[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Set the Value for Reporting Period
+#define REPORT_PERIOD 12
+// The number of readings to take before sending the data
+int hoursCount = 0;
+// The raw reading from the sensor
 long pulse;
+// Temp array to hold the readings
+int rangevalue[] = {0, 0, 0, 0, 0};
+// The mode of the readings
 int modE;
-int arraysize = 7;
-bool measuring;
+// The levels array for an individual hour.
+int arraysize = 5;
 
-// Set the variables for timing
-int minuteCount = 0;
-int hourCount = 0;
-unsigned long beginningOfTime;
-unsigned long currentTime;
+// DS3231 alarm time
+uint8_t wake_HOUR;
+uint8_t wake_MINUTE;
+uint8_t wake_SECOND;
+#define BUFF_MAX 256
+
+struct ts t;
 
 // Variables for sending the message
 String lvl_message;
@@ -31,100 +45,52 @@ int txMsgLen;
 int j = 0;
 char satMessage[50] = {0};
 
+// Standard setup( ) function
 void setup()
 {
-    // Set the initial time that the gauge was turned on
-    beginningOfTime = millis();
-    // Step for Serial Debugging only
-    Serial.begin(9600);
-    while (!Serial)
-        ; // Wait to connect serial port. For native USB port only || Remove once live
+    Serial.begin(115200);
 
-    // Confirgure the pins used
-    pinMode(sensorReadPin, INPUT);
-    pulseIn(sensorReadPin, LOW);
-
-    /*
-     * Initiating the satellite modem
-     *
-     * Below we initiate the satellite modem. We first tell the arduino to
-     * communicate with it via I2C, we then charge the supercapacitors.
-     * Finally, we turn on the modem and set the power profile to be the default, then turn the system off.
-     */
-
-    // Start the I2C wire port connected to the satellite modem
+    // Set the sonic sensor as an input
+    pinMode(sonicSensor, INPUT);
+    digitalWrite(sonicSensor, LOW);
+    // Set the built in LED as an output so we can see when the device is awake
+    pinMode(LED_BUILTIN, OUTPUT);
+    // Clear the current alarm (puts DS3231 INT high)
     Wire.begin();
-    Wire.setClock(400000); // Set I2C clock speed to 400kHz
+    Wire.setClock(400000);
+    DS3231_init(DS3231_CONTROL_INTCN);
+    DS3231_clear_a1f();
 
-    while (!modem.checkSuperCapCharger())
+    // Blink the LED 5 times to show the device is awake then turn it off and print Setup Completed
+    for (int i = 0; i < BLINK_COUNT; i++)
     {
-        Serial.println(F("Waiting for supercapacitors to charge..."));
-        delay(1000);
+        digitalWrite(LED_BUILTIN, HIGH);
+        delay(500);
+        digitalWrite(LED_BUILTIN, LOW);
+        delay(500);
     }
-    Serial.println(F("Supercapacitors charged!"));
-
-    // Enable power for the 9603N
-    Serial.println(F("Enabling 9603N power..."));
-    modem.enable9603Npower(true);
-    // Set the modem power profile to be the default power profile
-    Serial.println(F("Starting modem..."));
-    modem.setPowerProfile(IridiumSBD::DEFAULT_POWER_PROFILE); // Set the default power source for the modem
-    // Disable 9603N power
-    Serial.println(F("Disabling 9603N power..."));
-    modem.enable9603Npower(false);
-    // Turn off the modem
-    Serial.println(F("Putting modem to sleep and starting the loop"));
-    modem.sleep();
+    Serial.println("Setup completed.");
 }
 
 void loop()
 {
-    // Set current time the loop starts
-    currentTime = millis();
+    // Get the current time
+    DS3231_get(&t);
+    // If the the current hour is not the hour in which a signal is to be sent run this code
+    // Print Current Time to Serial Monitor t.hour, t.min, t.sec
+    Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
+    // Print a t.hour to the serial monitor
+    Serial.println((String) "Current Hour: " + t.hour);
 
-    // Prevent Millis Rollover
-    if ((currentTime - beginningOfTime) < 0)
+    if ((t.hour == 8 || t.hour == 20))
     {
-        beginningOfTime = currentTime;
+        sendSatSignal = true;
     }
 
-    // It has been 1 minute, update the minute count and check if a reading is required
-    if ((currentTime - beginningOfTime) >= MINUTE_VALUE)
+    if (sendSatSignal)
     {
-        // Counts up to 1hr
-        minuteCount++;
-        beginningOfTime = millis();
-        // Check if a measurement is required
-        if (measuring)
-        {
-            // Gather 11 samples for rangeValue array over 55 Seconds
-            for (int i = 0; i < arraysize; i++)
-            {
-                pulse = pulseIn(sensorReadPin, HIGH);
-                rangevalue[i] = pulse / 58;
-                Serial.println((String) "Reading is " + (pulse / 58));
-            }
-            // We have 11 samples report the median to the levels array and shut off the sensor
-            isort(rangevalue, arraysize);
-            modE = mode(rangevalue, arraysize);
-            levels[hourCount] = modE;
-            Serial.println((String) "The mode at " + (hourCount) + " is " + levels[hourCount]);
-            measuring = false;
-            pulseIn(sensorReadPin, LOW);
-        }
-    }
-
-    // An hour has passed reset the minute count and request the sensor to start reading again, also increment the hour reading
-    if (minuteCount >= HOUR_VALUE)
-    {
-        minuteCount = 0;
-        hourCount++;
-        measuring = true;
-    }
-
-    // 8 Hours has passed, create the levels array and send it to the satelite. Reset the hours count to 0 to start the 8 hour cycle again.
-    if (hourCount >= REPORT_PERIOD)
-    {
+        Serial.println((String) "Taking Final Reading ");
+        takeAReading();
         lvl_message = "[";
         for (j = 0; j < REPORT_PERIOD; j++)
         {
@@ -143,9 +109,118 @@ void loop()
         lvl_message.toCharArray(satMessage, txMsgLen);
         // Removing sending satalite message for testing replacing with serial print
         Serial.println((String) "The message being sent to the satellite is " + satMessage);
-        // sendSatelliteMessage();
-        hourCount = 0;
+        sendSatelliteMessage();
+        sendSatSignal = false;
+        hoursCount = 0;
+        goToSleep();
     }
+    else
+    {
+        // Take a reading
+        takeAReading();
+        hoursCount++;
+        goToSleep();
+    }
+}
+
+void goToSleep()
+{
+    setNextAlarm();
+
+    // Disable the ADC (Analog to digital converter, pins A0 [14] to A5 [19])
+    static byte prevADCSRA = ADCSRA;
+    ADCSRA = 0;
+
+    /* Set the type of sleep mode we want. Can be one of (in order of power saving):
+     SLEEP_MODE_IDLE (Timer 0 will wake up every millisecond to keep millis running)
+     SLEEP_MODE_ADC
+     SLEEP_MODE_PWR_SAVE (TIMER 2 keeps running)
+     SLEEP_MODE_EXT_STANDBY
+     SLEEP_MODE_STANDBY (Oscillator keeps running, makes for faster wake-up)
+     SLEEP_MODE_PWR_DOWN (Deep sleep)
+     */
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+
+    // Turn of Brown Out Detection (low voltage)
+    // Thanks to Nick Gammon for how to do this (temporarily) in software rather than
+    // permanently using an avrdude command line.
+    //
+    // Note: Microchip state: BODS and BODSE only available for picoPower devices ATmega48PA/88PA/168PA/328P
+    //
+    // BODS must be set to one and BODSE must be set to zero within four clock cycles. This sets
+    // the MCU Control Register (MCUCR)
+    MCUCR = bit(BODS) | bit(BODSE);
+
+    // The BODS bit is automatically cleared after three clock cycles so we better get on with it
+    MCUCR = bit(BODS);
+
+    // Ensure we can wake up again by first disabling interupts (temporarily) so
+    // the wakeISR does not run before we are asleep and then prevent interrupts,
+    // and then defining the ISR (Interrupt Service Routine) to run when poked awake
+    noInterrupts();
+    attachInterrupt(digitalPinToInterrupt(wakePin), sleepISR, LOW);
+
+    // Send a message just to show we are about to sleep
+    Serial.println("Good night!");
+    Serial.flush();
+
+    // Allow interrupts now
+    interrupts();
+
+    // And enter sleep mode as set above
+    sleep_cpu();
+
+    // --------------------------------------------------------
+    // µController is now asleep until woken up by an interrupt
+    // --------------------------------------------------------
+
+    // Wakes up at this point when wakePin is brought LOW - interrupt routine is run first
+    Serial.println("I'm awake!");
+
+    // Clear existing alarm so int pin goes high again
+    DS3231_clear_a1f();
+
+    // Re-enable ADC if it was previously running
+    ADCSRA = prevADCSRA;
+}
+
+void sleepISR()
+{
+    // Prevent sleep mode, so we don't enter it again, except deliberately, by code
+    sleep_disable();
+
+    // Detach the interrupt that brought us out of sleep
+    detachInterrupt(digitalPinToInterrupt(wakePin));
+
+    // Now we continue running the main Loop() just after we went to sleep
+}
+
+// Set the next alarm
+void setNextAlarm()
+{
+    // flags define what calendar component to be checked against the current time in order
+    // to trigger the alarm - see datasheet
+    // A1M1 (seconds) (0 to enable, 1 to disable)
+    // A1M2 (minutes) (0 to enable, 1 to disable)
+    // A1M3 (hour)    (0 to enable, 1 to disable)
+    // A1M4 (day)     (0 to enable, 1 to disable)
+    // DY/DT          (dayofweek == 1/dayofmonth == 0)
+    uint8_t flags[5] = {0, 0, 0, 1, 1};
+    // get current time so we can calc the next alarm
+    DS3231_get(&t);
+    // set the values for the next alarm - wake up on the hour every hour
+    wake_HOUR = ((t.hour + 1) % 24);
+    wake_MINUTE = 0;
+    wake_SECOND = 0;
+
+    Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
+    // Set the alarm time (but not yet activated)
+    Serial.println("Setting alarm for " + (String)wake_HOUR + ":" + (String)wake_MINUTE + ":" + (String)wake_SECOND);
+
+    DS3231_set_a1(wake_SECOND, wake_MINUTE, wake_HOUR, 0, flags);
+    // Turn the alarm on
+    DS3231_set_creg(DS3231_CONTROL_INTCN | DS3231_CONTROL_A1IE);
 }
 
 // Sorting function
@@ -165,7 +240,6 @@ void isort(int *a, int n)
 }
 
 // Mode function, returning the mode or median.
-
 int mode(int *x, int n)
 {
     int i = 0;
@@ -206,6 +280,28 @@ int mode(int *x, int n)
         }
         return mode;
     }
+}
+
+void takeAReading()
+{
+    // Take 5 readings over 25 seconds
+    for (int i = 0; i < arraysize; i++)
+    {
+        pulse = pulseIn(sonicSensor, HIGH);
+        digitalWrite(LED_BUILTIN, HIGH);
+        rangevalue[i] = pulse / 58;
+        Serial.println((String) "Reading is " + (pulse / 58));
+        // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
+        delay(5000);
+    }
+    // We have 5 samples report the median to the levels array
+    isort(rangevalue, arraysize);
+    modE = mode(rangevalue, arraysize);
+    levels[hoursCount] = modE;
+    Serial.println((String) "The mode at " + (hoursCount) + " is " + levels[hoursCount]);
+    // Shut off the sensor
+    pulseIn(sonicSensor, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
 }
 
 void sendSatelliteMessage()
