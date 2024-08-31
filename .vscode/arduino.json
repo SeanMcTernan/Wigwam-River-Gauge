@@ -1,7 +1,6 @@
 {
-    "board": "arduino:avr:pro",
+    "board": "arduino:avr:uno",
     "programmer": "arduino:avrisp",
-    "port": "/dev/tty.usbserial-110",
-    "sketch": "rtc_test/rtc_test.ino",
-    "configuration": "cpu=8MHzatmega328"
+    "port": "/dev/tty.usbmodem1101",
+    "sketch": "rockblock/getTime/getTime.ino"
 }

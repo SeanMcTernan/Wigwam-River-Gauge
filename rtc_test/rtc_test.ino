@@ -1,4 +1,3 @@
-
 #include <Wire.h>
 #include "ds3231.h"
 #include <IridiumSBD.h>
@@ -7,6 +6,7 @@
 //** Set Arduino Values **//
 // Set a blink counter for setup purposes
 #define BLINK_COUNT 5
+boolean initialSetup = true;
 // RTC Wakeup Pin
 #define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
 // Sonic Sensor Pin
@@ -65,9 +65,9 @@ void setup()
   for (int i = 0; i < BLINK_COUNT; i++)
   {
     digitalWrite(LED_BUILTIN, HIGH);
-    delay(500);
+    delay(250);
     digitalWrite(LED_BUILTIN, LOW);
-    delay(500);
+    delay(250);
   }
   Serial.println("Setup completed.");
 }
@@ -82,14 +82,23 @@ void loop()
   // Print a t.hour to the serial monitor
   Serial.println((String) "Current Hour: " + t.hour);
 
-  if ((t.hour == 8 || t.hour == 20))
+  if ((t.hour == 16 || t.hour == 17))
   {
     sendSatSignal = true;
   }
 
-  if (sendSatSignal)
+  if (sendSatSignal || initialSetup)
   {
-    Serial.println((String) "Taking Final Reading ");
+
+    if (initialSetup)
+    {
+      Serial.println((String) "Taking First Reading");
+    }
+    else
+    {
+      Serial.println((String) "Taking Reading");
+    }
+
     takeAReading();
     lvl_message = "[";
     for (j = 0; j < REPORT_PERIOD; j++)
@@ -112,6 +121,7 @@ void loop()
     sendSatelliteMessage();
     sendSatSignal = false;
     hoursCount = 0;
+    initialSetup = false;
     goToSleep();
   }
   else
@@ -292,7 +302,7 @@ void takeAReading()
     rangevalue[i] = pulse / 58;
     Serial.println((String) "Reading is " + (pulse / 58));
     // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
-    delay(5000);
+    delay(500);
   }
   // We have 5 samples report the median to the levels array
   isort(rangevalue, arraysize);
@@ -308,6 +318,14 @@ void sendSatelliteMessage()
 {
   int signalQuality = -1;
   int err;
+
+  // Check that the Qwiic Iridium is attached
+  if (!modem.isConnected())
+  {
+    Serial.println(F("Qwiic Iridium is not connected! Please check wiring. Freezing."));
+    while (1)
+      ;
+  }
 
   // Enable the supercapacitor charger
   Serial.println(F("Enabling the supercapacitor charger..."));

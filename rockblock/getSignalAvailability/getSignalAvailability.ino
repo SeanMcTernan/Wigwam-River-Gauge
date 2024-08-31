@@ -1,12 +1,11 @@
-#include <IridiumSBD.h> // Click here to get the library: http://librarymanager/All#IridiumSBDI2C
+ #include <IridiumSBD.h> // Click here to get the library: http://librarymanager/All#IridiumSBDI2C
 
 #include <Wire.h> //Needed for I2C communication
 
 /*
- * Check CSQ
+ * Get IMEI
  *
- * This sketch checks the Iridium signal quality and returns the status
- * of the Network Available signal.
+ * This sketch requests the satellite modem's IMEI number.
  *
  * Assumptions
  *
@@ -16,46 +15,45 @@
  */
 
 #define IridiumWire Wire
-#define DIAGNOSTICS false // Change this to enable diagnostics
+#define DIAGNOSTICS true // Change this to disable diagnostics
 
 // Declare the IridiumSBD object using default I2C address
 IridiumSBD modem(IridiumWire);
 
 void setup()
 {
-  int signalQuality = -1;
   int err;
 
   // Start the console serial port
-  Serial.begin(115200);
+  Serial.begin(115200); 
   while (!Serial)
     ; // Wait for the user to open the serial monitor
-  Serial.println(F("Iridium SBD Check CSQ I2C"));
+  Serial.println(F("Iridium SBD Get IMEI I2C"));
 
   // empty the serial buffer
   while (Serial.available() > 0)
     Serial.read();
 
   // wait for the user to press any key before beginning
-  Serial.println(F("Press any key to start example."));
-  while (Serial.available() == 0)
-    ;
+//  Serial.println(F("Press any key to start example."));
+//  while (Serial.available() == 0)
+//    ;
 
   // clean up
-  while (Serial.available() > 0)
-    Serial.read();
+//  while (Serial.available() > 0)
+//    Serial.read();
 
   // Start the I2C wire port connected to the satellite modem
   Wire.begin();
   Wire.setClock(400000); // Set I2C clock speed to 400kHz
 
   // Check that the Qwiic Iridium is attached
-  if (!modem.isConnected())
-  {
-    Serial.println(F("Qwiic Iridium is not connected! Please check wiring. Freezing."));
-    while (1)
-      ;
-  }
+//  if (!modem.isConnected())
+//  {
+//    Serial.println(F("Qwiic Iridium is not connected! Please check wiring. Freezing."));
+//    while (1)
+//      ;
+//  }
 
   // Enable the supercapacitor charger
   Serial.println(F("Enabling the supercapacitor charger..."));
@@ -68,6 +66,15 @@ void setup()
     delay(1000);
   }
   Serial.println(F("Supercapacitors charged!"));
+
+  // empty the serial buffer
+  while (Serial.available() > 0)
+    Serial.read();
+
+  // wait for the user to press any key before beginning
+  Serial.println(F("Press any key to continue."));
+  while (Serial.available() == 0)
+    ;
 
   // Enable power for the 9603N
   Serial.println(F("Enabling 9603N power..."));
@@ -86,19 +93,6 @@ void setup()
     return;
   }
 
-  // Print the firmware revision
-  char version[12];
-  err = modem.getFirmwareVersion(version, sizeof(version));
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("FirmwareVersion failed: error "));
-    Serial.println(err);
-    return;
-  }
-  Serial.print(F("Firmware Version is "));
-  Serial.print(version);
-  Serial.println(F("."));
-
   // Get the IMEI
   char IMEI[16];
   err = modem.getIMEI(IMEI, sizeof(IMEI));
@@ -111,32 +105,6 @@ void setup()
   Serial.print(F("IMEI is "));
   Serial.print(IMEI);
   Serial.println(F("."));
-
-  // Check the signal quality.
-  // This returns a number between 0 and 5.
-  // 2 or better is preferred.
-  err = modem.getSignalQuality(signalQuality);
-  if (err != ISBD_SUCCESS)
-  {
-    Serial.print(F("SignalQuality failed: error "));
-    Serial.println(err);
-    return;
-  }
-
-  Serial.print(F("On a scale of 0 to 5, signal quality is currently "));
-  Serial.print(signalQuality);
-  Serial.println(F("."));
-
-  // Check Network Available.
-  Serial.println(F("Checking Network Available:"));
-  while (!modem.checkNetworkAvailable())
-  {
-    Serial.println(F("Network is not available."));
-    Serial.println(F("(This might be because the 9603N has not yet aquired the ring channel.)"));
-    Serial.println(F("Checking again in 10 seconds..."));
-    delay(10000);
-  }
-  Serial.println(F("Network is available!"));
 
   // Power down the modem
   Serial.println(F("Putting the 9603N to sleep."));
