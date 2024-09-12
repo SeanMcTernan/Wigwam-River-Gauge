@@ -103,11 +103,8 @@ void loop()
 
         txMsgLen = lvl_message.length() + 1;
         lvl_message.toCharArray(satMessage, txMsgLen);
-        // Removing sending satalite message for testing replacing with serial print
-        Serial.println((String) "The message being sent to the satellite is " + satMessage);
         sendSatelliteMessage();
         sendSatMessage = false;
-        hoursCount = 0;
         initialSetup = false;
         goToSleep();
     }
