@@ -4,15 +4,14 @@
 #include <avr/sleep.h>
 
 //** Set Arduino Values **//
-// Set a blink counter for setup purposes
-#define BLINK_COUNT 5
+boolean initialSetup = true;
 // RTC Wakeup Pin
 #define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
 // Sonic Sensor Pin
 #define sonicSensor 7
 // Satellite Modem Pin
 // Set the send sat signal boolean
-boolean sendSatSignal = false;
+boolean sendSatMessage = false;
 // Declare the IridiumSBD object using default I2C address
 #define IridiumWire Wire
 IridiumSBD modem(IridiumWire);
@@ -53,23 +52,11 @@ void setup()
     // Set the sonic sensor as an input
     pinMode(sonicSensor, INPUT);
     digitalWrite(sonicSensor, LOW);
-    // Set the built in LED as an output so we can see when the device is awake
-    pinMode(LED_BUILTIN, OUTPUT);
     // Clear the current alarm (puts DS3231 INT high)
     Wire.begin();
     Wire.setClock(400000);
     DS3231_init(DS3231_CONTROL_INTCN);
     DS3231_clear_a1f();
-
-    // Blink the LED 5 times to show the device is awake then turn it off and print Setup Completed
-    for (int i = 0; i < BLINK_COUNT; i++)
-    {
-        digitalWrite(LED_BUILTIN, HIGH);
-        delay(500);
-        digitalWrite(LED_BUILTIN, LOW);
-        delay(500);
-    }
-    Serial.println("Setup completed.");
 }
 
 void loop()
@@ -84,12 +71,21 @@ void loop()
 
     if ((t.hour == 8 || t.hour == 20))
     {
-        sendSatSignal = true;
+        sendSatMessage = true;
     }
 
-    if (sendSatSignal)
+    if (sendSatMessage || initialSetup)
     {
-        Serial.println((String) "Taking Final Reading ");
+
+        if (initialSetup)
+        {
+            Serial.println((String) "Taking First Reading");
+        }
+        else
+        {
+            Serial.println((String) "Taking Reading");
+        }
+
         takeAReading();
         lvl_message = "[";
         for (j = 0; j < REPORT_PERIOD; j++)
@@ -110,8 +106,9 @@ void loop()
         // Removing sending satalite message for testing replacing with serial print
         Serial.println((String) "The message being sent to the satellite is " + satMessage);
         sendSatelliteMessage();
-        sendSatSignal = false;
+        sendSatMessage = false;
         hoursCount = 0;
+        initialSetup = false;
         goToSleep();
     }
     else
@@ -288,7 +285,6 @@ void takeAReading()
     for (int i = 0; i < arraysize; i++)
     {
         pulse = pulseIn(sonicSensor, HIGH);
-        digitalWrite(LED_BUILTIN, HIGH);
         rangevalue[i] = pulse / 58;
         Serial.println((String) "Reading is " + (pulse / 58));
         // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
@@ -301,7 +297,6 @@ void takeAReading()
     Serial.println((String) "The mode at " + (hoursCount) + " is " + levels[hoursCount]);
     // Shut off the sensor
     pulseIn(sonicSensor, LOW);
-    digitalWrite(LED_BUILTIN, LOW);
 }
 
 void sendSatelliteMessage()
