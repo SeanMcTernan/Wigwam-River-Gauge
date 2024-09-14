@@ -114,7 +114,7 @@ void setup()
   Serial.print(IMEI);
   Serial.println(F("."));
 
-  // Example: Test the signal quality.
+  // Example: Test the signal quality.s
   // This returns a number between 0 and 5.
   // 2 or better is preferred.
   err = modem.getSignalQuality(signalQuality);

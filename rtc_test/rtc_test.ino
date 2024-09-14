@@ -8,7 +8,7 @@
 #define BLINK_COUNT 5
 boolean initialSetup = true;
 // RTC Wakeup Pin
-#define wakePin 2 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
+#define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
 // Sonic Sensor Pin
 #define sonicSensor 7
 // Satellite Modem Pin
@@ -220,9 +220,9 @@ void setNextAlarm()
   // get current time so we can calc the next alarm
   DS3231_get(&t);
   // set the values for the next alarm - wake up on the hour every hour
-  wake_HOUR = ((t.hour + 1) % 24);
-  wake_MINUTE = 0;
-  wake_SECOND = 0;
+  wake_HOUR = t.hour;
+  wake_MINUTE = t.min;
+  wake_SECOND = t.sec + 10;
 
   Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
   // Set the alarm time (but not yet activated)
