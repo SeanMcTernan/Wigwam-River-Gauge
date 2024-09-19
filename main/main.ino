@@ -301,16 +301,21 @@ void sendSatelliteMessage()
     int signalQuality = -1;
     int err;
 
+    // Check that the Qwiic Iridium is attached
+    if (!modem.isConnected())
+    {
+        Serial.println(F("Qwiic Iridium is not connected! Please check wiring. Freezing."));
+        while (1)
+            ;
+    }
+
     // Enable the supercapacitor charger
     Serial.println(F("Enabling the supercapacitor charger..."));
     modem.enableSuperCapCharger(true);
 
     // Wait for the supercapacitor charger PGOOD signal to go high
     while (!modem.checkSuperCapCharger())
-    {
-        Serial.println(F("Waiting for supercapacitors to charge..."));
-        delay(1000);
-    }
+        ;
     Serial.println(F("Supercapacitors charged!"));
 
     // Enable power for the 9603N
@@ -319,7 +324,6 @@ void sendSatelliteMessage()
 
     // Begin satellite modem operation
     Serial.println(F("Starting modem..."));
-    modem.setPowerProfile(IridiumSBD::USB_POWER_PROFILE); // Assume 'USB' power (slow recharge)
     err = modem.begin();
     if (err != ISBD_SUCCESS)
     {
@@ -330,35 +334,21 @@ void sendSatelliteMessage()
         return;
     }
 
-    // Example: Test the signal quality.
-    // This returns a number between 0 and 5.
-    // 2 or better is preferred.
-    err = modem.getSignalQuality(signalQuality);
-    if (err != ISBD_SUCCESS)
-    {
-        Serial.print(F("SignalQuality failed: error "));
-        Serial.println(err);
-        return;
-    }
-
-    Serial.print(F("On a scale of 0 to 5, signal quality is currently "));
-    Serial.print(signalQuality);
-    Serial.println(F("."));
-
     // Send the message
     Serial.println(F("Trying to send the message.  This might take several minutes."));
     Serial.println((String) "The message being sent to the satellite is " + satMessage);
+    err = modem.sendSBDText(satMessage);
     if (err != ISBD_SUCCESS)
     {
         Serial.print(F("sendSBDText failed: error "));
         Serial.println(err);
         if (err == ISBD_SENDRECEIVE_TIMEOUT)
-            Serial.println(F("Try again with a better view of the sky."));
+            Serial.println(F("Message Sending Failed"));
     }
 
     else
     {
-        Serial.println(F("Hey, it worked!"));
+        Serial.println(F("Satellite message sent!"));
     }
 
     // Clear the Mobile Originated message buffer
@@ -387,5 +377,5 @@ void sendSatelliteMessage()
     Serial.println(F("Disabling the supercapacitor charger..."));
     modem.enableSuperCapCharger(false);
 
-    Serial.println(F("Done!"));
+    Serial.println(F("Message Send Function Complete"));
 }

@@ -1,17 +1,21 @@
-
 #include <Wire.h>
 #include "ds3231.h"
+#include <IridiumSBD.h>
 #include <avr/sleep.h>
 
 //** Set Arduino Values **//
-
+boolean initialSetup = true;
 // RTC Wakeup Pin
-#define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
+#define wakePin 2 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
 // Sonic Sensor Pin
 #define sonicSensor 7
 // Satellite Modem Pin
 // Set the send sat signal boolean
-boolean sendSatSignal = false;
+boolean sendSatMessage = false;
+// Declare the IridiumSBD object using default I2C address
+#define IridiumWire Wire
+IridiumSBD modem(IridiumWire);
+
 // Set the Value for Reporting Period
 #define REPORT_PERIOD 12
 // The number of readings to take before sending the data
@@ -24,8 +28,10 @@ int rangevalue[] = {0, 0, 0, 0, 0};
 int modE;
 // The levels array for an individual hour.
 int arraysize = 5;
-// Levels array to send to the satellite
-int levels[REPORT_PERIOD] = {0};
+
+#define modemStandIn 8
+// Satellite Modem Pin
+// Set the send sat signal boolean
 
 // DS3231 alarm time
 uint8_t wake_HOUR;
@@ -35,21 +41,26 @@ uint8_t wake_SECOND;
 
 struct ts t;
 
+// Variables for sending the message
+String lvl_message;
+int levels[REPORT_PERIOD] = {0};
+int txMsgLen;
+int j = 0;
+char satMessage[50] = {0};
+
 // Standard setup( ) function
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // Set the sonic sensor as an input
-  pinMode(sonicSensor, INPUT);
-  digitalWrite(sonicSensor, LOW);
-
+  pinMode(modemStandIn, OUTPUT);
+  digitalWrite(modemStandIn, LOW);
   // Clear the current alarm (puts DS3231 INT high)
   Wire.begin();
+  Wire.setClock(400000);
   DS3231_init(DS3231_CONTROL_INTCN);
   DS3231_clear_a1f();
-
-  Serial.println("Setup completed.");
 }
 
 void loop()
@@ -61,21 +72,44 @@ void loop()
   Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
   // Print a t.hour to the serial monitor
   Serial.println((String) "Current Hour: " + t.hour);
-  // print a boolean expression to the serial monitor that asks if the hour == 20
-  Serial.println((String) "Is the hour 20: " + (t.hour == 20));
 
-  if ((t.hour == 8 || t.hour == 21))
+  if ((t.hour == 8 || t.hour == 20))
   {
-    sendSatSignal = true;
+    sendSatMessage = true;
   }
 
-  if (sendSatSignal)
+  if (sendSatMessage || initialSetup)
   {
-    Serial.println((String) "Taking Final Reading ");
+
+    if (initialSetup)
+    {
+      Serial.println((String) "Taking First Reading");
+    }
+    else
+    {
+      Serial.println((String) "Taking Reading");
+    }
+
     takeAReading();
-    Serial.println((String) "Sending sat signal");
-    sendSatSignal = false;
-    hoursCount = 0;
+    lvl_message = "[";
+    for (j = 0; j < REPORT_PERIOD; j++)
+    {
+      lvl_message.concat(levels[j]);
+      if (j < (REPORT_PERIOD - 1))
+      {
+        lvl_message.concat(",");
+      }
+      else
+      {
+        lvl_message.concat("]");
+      }
+    }
+
+    txMsgLen = lvl_message.length() + 1;
+    lvl_message.toCharArray(satMessage, txMsgLen);
+    sendSatelliteMessage();
+    sendSatMessage = false;
+    initialSetup = false;
     goToSleep();
   }
   else
@@ -251,9 +285,10 @@ void takeAReading()
   // Take 5 readings over 25 seconds
   for (int i = 0; i < arraysize; i++)
   {
-    pulse = pulseIn(sonicSensor, HIGH);
+    pulse = analogRead(A0);
     rangevalue[i] = pulse / 58;
     Serial.println((String) "Reading is " + (pulse / 58));
+    // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
     delay(5000);
   }
   // We have 5 samples report the median to the levels array
@@ -262,5 +297,20 @@ void takeAReading()
   levels[hoursCount] = modE;
   Serial.println((String) "The mode at " + (hoursCount) + " is " + levels[hoursCount]);
   // Shut off the sensor
-  pulseIn(sonicSensor, LOW);
+  // pulseIn(sonicSensor, LOW);
+}
+
+void sendSatelliteMessage()
+{
+
+  // Send the message
+  Serial.println(F("Trying to send the message.  This might take several minutes."));
+  digitalWrite(modemStandIn, HIGH);
+  Serial.println((String) "The message being sent to the satellite is " + satMessage);
+  delay(5000);
+  Serial.println(F("Satellite message sent!"));
+  Serial.println(F("Putting the 9603N to sleep."));
+  Serial.println(F("Disabling 9603N power..."));
+  Serial.println(F("Disabling the supercapacitor charger..."));
+  Serial.println(F("Message Send Function Complete"));
 }
