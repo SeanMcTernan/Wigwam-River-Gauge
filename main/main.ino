@@ -2,32 +2,31 @@
 #include "ds3231.h"
 #include <IridiumSBD.h>
 #include <avr/sleep.h>
-
+// 2024,09,20,12,07,25
 //** Set Arduino Values **//
 boolean initialSetup = true;
+boolean sendSatMessage = false;
+boolean resendRequired;
+
 // RTC Wakeup Pin
 #define wakePin 3 // when low, makes 328P wake up, must be an interrupt pin (2 or 3 on ATMEGA328P)
+
 // Sonic Sensor Pin
 #define sonicSensor 7
-// Satellite Modem Pin
-// Set the send sat signal boolean
-boolean sendSatMessage = false;
+
 // Declare the IridiumSBD object using default I2C address
 #define IridiumWire Wire
 IridiumSBD modem(IridiumWire);
 
 // Set the Value for Reporting Period
 #define REPORT_PERIOD 12
-// The number of readings to take before sending the data
-int hoursCount = 0;
-// The raw reading from the sensor
-long pulse;
-// Temp array to hold the readings
-int rangevalue[] = {0, 0, 0, 0, 0};
-// The mode of the readings
-int modE;
-// The levels array for an individual hour.
-int arraysize = 5;
+
+// Sensor readings
+long pulse;                         // The raw reading from the sensor
+int currentReading;                 // The current reading from the sensor
+int rangevalue[] = {0, 0, 0, 0, 0}; // Temp array to hold the readings
+int modE;                           // The mode of the readings
+int arraysize = 5;                  // The levels array for an individual hour
 
 // DS3231 alarm time
 uint8_t wake_HOUR;
@@ -66,55 +65,199 @@ void loop()
     // If the the current hour is not the hour in which a signal is to be sent run this code
     // Print Current Time to Serial Monitor t.hour, t.min, t.sec
     Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
-    // Print a t.hour to the serial monitor
-    Serial.println((String) "Current Hour: " + t.hour);
+    // print the resending flag
+    Serial.println((String) "Resend Flag: " + resendRequired);
+    sendSatMessage = (t.hour == 8 || t.hour == 20 || resendRequired);
+    // print the sendSatMessage flag
+    Serial.println((String) "Send Message Flag: " + sendSatMessage);
+    Serial.println((String) "Initial Setup Flag: " + initialSetup);
 
-    if ((t.hour == 8 || t.hour == 20))
+    if (initialSetup)
     {
-        sendSatMessage = true;
-    }
-
-    if (sendSatMessage || initialSetup)
-    {
-
-        if (initialSetup)
-        {
-            Serial.println((String) "Taking First Reading");
-        }
-        else
-        {
-            Serial.println((String) "Taking Reading");
-        }
-
-        takeAReading();
-        lvl_message = "[";
-        for (j = 0; j < REPORT_PERIOD; j++)
-        {
-            lvl_message.concat(levels[j]);
-            if (j < (REPORT_PERIOD - 1))
-            {
-                lvl_message.concat(",");
-            }
-            else
-            {
-                lvl_message.concat("]");
-            }
-        }
-
-        txMsgLen = lvl_message.length() + 1;
-        lvl_message.toCharArray(satMessage, txMsgLen);
-        sendSatelliteMessage();
-        sendSatMessage = false;
+        Serial.println((String) "Taking First Reading");
+        currentReading = takeAReading();
+        arrangeLevelsArray(currentReading);
+        createLevelMessage();
+        Serial.println((String) "Sending First Message...");
+        sendSatelliteMessage(satMessage, resendRequired);
         initialSetup = false;
         goToSleep();
+    }
+
+    else if (sendSatMessage)
+    {
+        // This code should only run at 9am or 9pm and if a message needs to be resent
+        if (resendRequired)
+        {
+            Serial.println((String) "!XX! Resending a Message...");
+            Serial.println((String) "!XX! The message that needs to be resent to the satellite is " + satMessage);
+            sendSatelliteMessage(satMessage, resendRequired);
+            resendRequired = false;
+            Serial.println((String) "Resend Flag: " + resendRequired);
+            clearLevelsArray();
+            currentReading = takeAReading();
+            arrangeLevelsArray(currentReading);
+            // Serial below strictly for debugging purposes
+            Serial.println("Current levels array after resending the message:");
+            for (int i = 0; i < REPORT_PERIOD; i++)
+            {
+                Serial.print(levels[i]);
+                if (i < REPORT_PERIOD - 1)
+                {
+                    Serial.print(", ");
+                }
+            }
+            Serial.println();
+            goToSleep();
+        }
+
+        else
+        {
+            Serial.println((String) "Taking a Reading");
+            currentReading = takeAReading();
+            arrangeLevelsArray(currentReading);
+            createLevelMessage();
+            Serial.println((String) "Sending a Message...");
+            sendSatelliteMessage(satMessage, resendRequired);
+            // Clear the levels array if the message is sent
+            if (!resendRequired)
+            {
+                clearLevelsArray();
+            }
+            goToSleep();
+        }
     }
     else
     {
         // Take a reading
-        takeAReading();
-        hoursCount++;
+        currentReading = takeAReading();
+        arrangeLevelsArray(currentReading);
+        Serial.println("Current levels array after Normal Reading:");
+        // Serial below strictly for debugging purposes
+        for (int i = 0; i < REPORT_PERIOD; i++)
+        {
+            Serial.print(levels[i]);
+            if (i < REPORT_PERIOD - 1)
+            {
+                Serial.print(", ");
+            }
+        }
+        Serial.println();
         goToSleep();
     }
+}
+
+void isort(int *a, int n)
+{
+    //  *a is an array pointer function
+    for (int i = 1; i < n; ++i)
+    {
+        int j = a[i];
+        int k;
+        for (k = i - 1; (k >= 0) && (j < a[k]); k--)
+        {
+            a[k + 1] = a[k];
+        }
+        a[k + 1] = j;
+    }
+}
+
+// Mode function, returning the mode or median.
+int mode(int *x, int n)
+{
+    int i = 0;
+    int count = 0;
+    int maxCount = 0;
+    int mode = 0;
+    int bimodal;
+    int prevCount = 0;
+
+    while (i < (n - 1))
+    {
+        prevCount = count;
+        count = 0;
+        while (x[i] == x[i + 1])
+        {
+            count++;
+            i++;
+        }
+        if (count > prevCount & count > maxCount)
+        {
+            mode = x[i];
+            maxCount = count;
+            bimodal = 0;
+        }
+
+        if (count == 0)
+        {
+            i++;
+        }
+
+        if (count == maxCount)
+        { // If the dataset has 2 or more modes.
+            bimodal = 1;
+        }
+        if (mode == 0 || bimodal == 1)
+        { // Return the median if there is no mode.
+            mode = x[(n / 2)];
+        }
+        return mode;
+    }
+}
+
+int takeAReading()
+{
+    // Take 5 readings over 25 seconds
+    for (int i = 0; i < arraysize; i++)
+    {
+        pulse = pulseIn(sonicSensor, HIGH);
+        rangevalue[i] = pulse / 58;
+        Serial.println((String) "Reading is " + (pulse / 58));
+        // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
+        delay(5000);
+    }
+    // We have 5 samples report the median to the levels array
+    isort(rangevalue, arraysize);
+    modE = mode(rangevalue, arraysize);
+    // Shut off the sensor
+    pulseIn(sonicSensor, LOW);
+    return modE;
+}
+
+void arrangeLevelsArray(int currentLevel)
+{
+    int hourPosition = (t.hour - 8 + 24) % 24; // Adjust the hour to be between 0 and 23
+    hourPosition = (hourPosition + 11) % 12;   // Wrap around to the last position in the 12-hour array
+    levels[hourPosition] = currentLevel;
+    Serial.println((String) "The mode at " + ((hourPosition + 1) % 12) + " is " + levels[hourPosition]);
+}
+
+void clearLevelsArray()
+{
+    for (int i = 0; i < REPORT_PERIOD; i++)
+    {
+        levels[i] = 0;
+    }
+}
+
+void createLevelMessage()
+{
+    lvl_message = "[";
+    for (j = 0; j < REPORT_PERIOD; j++)
+    {
+        lvl_message.concat(levels[j]);
+        if (j < (REPORT_PERIOD - 1))
+        {
+            lvl_message.concat(",");
+        }
+        else
+        {
+            lvl_message.concat("]");
+        }
+    }
+
+    txMsgLen = lvl_message.length() + 1;
+    lvl_message.toCharArray(satMessage, txMsgLen);
 }
 
 void goToSleep()
@@ -218,85 +361,8 @@ void setNextAlarm()
 }
 
 // Sorting function
-void isort(int *a, int n)
-{
-    //  *a is an array pointer function
-    for (int i = 1; i < n; ++i)
-    {
-        int j = a[i];
-        int k;
-        for (k = i - 1; (k >= 0) && (j < a[k]); k--)
-        {
-            a[k + 1] = a[k];
-        }
-        a[k + 1] = j;
-    }
-}
 
-// Mode function, returning the mode or median.
-int mode(int *x, int n)
-{
-    int i = 0;
-    int count = 0;
-    int maxCount = 0;
-    int mode = 0;
-    int bimodal;
-    int prevCount = 0;
-
-    while (i < (n - 1))
-    {
-        prevCount = count;
-        count = 0;
-        while (x[i] == x[i + 1])
-        {
-            count++;
-            i++;
-        }
-        if (count > prevCount & count > maxCount)
-        {
-            mode = x[i];
-            maxCount = count;
-            bimodal = 0;
-        }
-
-        if (count == 0)
-        {
-            i++;
-        }
-
-        if (count == maxCount)
-        { // If the dataset has 2 or more modes.
-            bimodal = 1;
-        }
-        if (mode == 0 || bimodal == 1)
-        { // Return the median if there is no mode.
-            mode = x[(n / 2)];
-        }
-        return mode;
-    }
-}
-
-void takeAReading()
-{
-    // Take 5 readings over 25 seconds
-    for (int i = 0; i < arraysize; i++)
-    {
-        pulse = pulseIn(sonicSensor, HIGH);
-        rangevalue[i] = pulse / 58;
-        Serial.println((String) "Reading is " + (pulse / 58));
-        // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
-        delay(5000);
-    }
-    // We have 5 samples report the median to the levels array
-    isort(rangevalue, arraysize);
-    modE = mode(rangevalue, arraysize);
-    levels[hoursCount] = modE;
-    Serial.println((String) "The mode at " + (hoursCount) + " is " + levels[hoursCount]);
-    // Shut off the sensor
-    pulseIn(sonicSensor, LOW);
-}
-
-void sendSatelliteMessage()
+void sendSatelliteMessage(const String &message, bool &resendRequired)
 {
     int signalQuality = -1;
     int err;
@@ -340,6 +406,8 @@ void sendSatelliteMessage()
     err = modem.sendSBDText(satMessage);
     if (err != ISBD_SUCCESS)
     {
+        resendRequired = true;
+        Serial.println((String) "Resend flag value set");
         Serial.print(F("sendSBDText failed: error "));
         Serial.println(err);
         if (err == ISBD_SENDRECEIVE_TIMEOUT)
