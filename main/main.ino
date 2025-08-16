@@ -2,7 +2,7 @@
 #include "ds3231.h"
 #include <IridiumSBD.h>
 #include <avr/sleep.h>
-// 2024,09,20,12,07,25
+// 2024,10,20,17,57,50
 //** Set Arduino Values **//
 boolean initialSetup = true;
 boolean sendSatMessage = false;
@@ -47,7 +47,6 @@ char satMessage[50] = {0};
 void setup()
 {
     Serial.begin(115200);
-
     // Set the sonic sensor as an input
     pinMode(sonicSensor, INPUT);
     digitalWrite(sonicSensor, LOW);
@@ -110,7 +109,6 @@ void loop()
             Serial.println();
             goToSleep();
         }
-
         else
         {
             Serial.println((String) "Taking a Reading");
