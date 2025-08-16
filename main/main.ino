@@ -78,7 +78,8 @@ void loop()
         arrangeLevelsArray(currentReading);
         createLevelMessage();
         Serial.println((String) "Sending First Message...");
-        sendSatelliteMessage(satMessage, resendRequired);
+        // remove comments before merging to main
+        // sendSatelliteMessage(satMessage, resendRequired);
         initialSetup = false;
         goToSleep();
     }
@@ -90,7 +91,8 @@ void loop()
         {
             Serial.println((String) "!XX! Resending a Message...");
             Serial.println((String) "!XX! The message that needs to be resent to the satellite is " + satMessage);
-            sendSatelliteMessage(satMessage, resendRequired);
+            // remove comments before merging to main
+            // sendSatelliteMessage(satMessage, resendRequired);
             resendRequired = false;
             Serial.println((String) "Resend Flag: " + resendRequired);
             clearLevelsArray();
@@ -116,7 +118,8 @@ void loop()
             arrangeLevelsArray(currentReading);
             createLevelMessage();
             Serial.println((String) "Sending a Message...");
-            sendSatelliteMessage(satMessage, resendRequired);
+            // remove comments before merging to main
+            // sendSatelliteMessage(satMessage, resendRequired);
             // Clear the levels array if the message is sent
             if (!resendRequired)
             {
@@ -401,21 +404,22 @@ void sendSatelliteMessage(const String &message, bool &resendRequired)
     // Send the message
     Serial.println(F("Trying to send the message.  This might take several minutes."));
     Serial.println((String) "The message being sent to the satellite is " + satMessage);
-    err = modem.sendSBDText(satMessage);
-    if (err != ISBD_SUCCESS)
-    {
-        resendRequired = true;
-        Serial.println((String) "Resend flag value set");
-        Serial.print(F("sendSBDText failed: error "));
-        Serial.println(err);
-        if (err == ISBD_SENDRECEIVE_TIMEOUT)
-            Serial.println(F("Message Sending Failed"));
-    }
+    // remove comments before merging to main
+    // err = modem.sendSBDText(satMessage);
+    // if (err != ISBD_SUCCESS)
+    // {
+    //     resendRequired = true;
+    //     Serial.println((String) "Resend flag value set");
+    //     Serial.print(F("sendSBDText failed: error "));
+    //     Serial.println(err);
+    //     if (err == ISBD_SENDRECEIVE_TIMEOUT)
+    //         Serial.println(F("Message Sending Failed"));
+    // }
 
-    else
-    {
-        Serial.println(F("Satellite message sent!"));
-    }
+    // else
+    // {
+    //     Serial.println(F("Satellite message sent!"));
+    // }
 
     // Clear the Mobile Originated message buffer
     Serial.println(F("Clearing the MO buffer."));
