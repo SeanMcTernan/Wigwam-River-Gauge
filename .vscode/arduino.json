@@ -1,0 +1,6 @@
+{
+    "board": "arduino:avr:uno",
+    "programmer": "arduino:avrisp",
+    "port": "/dev/tty.usbmodem1101",
+    "sketch": "rockblock/getTime/getTime.ino"
+}
