@@ -2,6 +2,7 @@
 #include "ds3231.h"
 #include <IridiumSBD.h>
 #include <avr/sleep.h>
+#include <time.h>
 // 2024,10,20,17,57,50
 //** Set Arduino Values **//
 boolean initialSetup = true;
@@ -43,18 +44,263 @@ int txMsgLen;
 int j = 0;
 char satMessage[50] = {0};
 
+// Function to initialize the Iridium modem
+bool initializeIridiumModem()
+{
+    int err;
+
+    // Check that the Qwiic Iridium is attached
+    if (!modem.isConnected())
+    {
+        Serial.println(F("Qwiic Iridium is not connected! Please check wiring."));
+        return false;
+    }
+
+    // Enable the supercapacitor charger
+    Serial.println(F("Enabling the supercapacitor charger..."));
+    modem.enableSuperCapCharger(true);
+
+    // Wait for the supercapacitor charger PGOOD signal to go high
+    while (!modem.checkSuperCapCharger())
+    {
+        Serial.println(F("Waiting for supercapacitors to charge..."));
+        delay(1000);
+    }
+    Serial.println(F("Supercapacitors charged!"));
+
+    // Enable power for the 9603N
+    Serial.println(F("Enabling 9603N power..."));
+    modem.enable9603Npower(true);
+
+    // Begin satellite modem operation
+    Serial.println(F("Starting modem..."));
+    modem.setPowerProfile(IridiumSBD::USB_POWER_PROFILE); // Assume 'USB' power (slow recharge)
+    err = modem.begin();
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("Begin failed: error "));
+        Serial.println(err);
+        if (err == ISBD_NO_MODEM_DETECTED)
+            Serial.println(F("No modem detected: check wiring."));
+        return false;
+    }
+
+    return true;
+}
+
+// Helper function to calculate day of week (0=Sunday, 1=Monday, etc.)
+uint8_t calculateDayOfWeek(int year, int month, int day)
+{
+    // Zeller's congruence algorithm
+    if (month < 3)
+    {
+        month += 12;
+        year--;
+    }
+    int k = year % 100;
+    int j = year / 100;
+    int h = (day + ((13 * (month + 1)) / 5) + k + (k / 4) + (j / 4) - 2 * j) % 7;
+    return (h + 5) % 7 + 1; // Convert to 1-7 range (1=Sunday)
+}
+
+// Helper function to calculate day of year
+uint16_t calculateDayOfYear(int year, int month, int day)
+{
+    int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    // Check for leap year
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))
+    {
+        days_in_month[1] = 29;
+    }
+
+    int dayOfYear = day;
+    for (int i = 0; i < month - 1; i++)
+    {
+        dayOfYear += days_in_month[i];
+    }
+
+    return dayOfYear;
+}
+
+// Helper function to set RTC time from string
+// Supports formats: "YYYY-MM-DD HH:MM:SS", "YYYY,MM,DD,HH,MM,SS", "MM/DD/YYYY HH:MM:SS"
+bool setRTCFromString(const String &timeString)
+{
+    struct ts rtc_time;
+    int year, month, day, hour, minute, second;
+
+    // Try different parsing formats
+    bool parsed = false;
+
+    // Format 1: "YYYY-MM-DD HH:MM:SS"
+    if (timeString.indexOf('-') > 0 && timeString.indexOf(':') > 0)
+    {
+        if (sscanf(timeString.c_str(), "%d-%d-%d %d:%d:%d",
+                   &year, &month, &day, &hour, &minute, &second) == 6)
+        {
+            parsed = true;
+        }
+    }
+    // Format 2: "YYYY,MM,DD,HH,MM,SS"
+    else if (timeString.indexOf(',') > 0)
+    {
+        if (sscanf(timeString.c_str(), "%d,%d,%d,%d,%d,%d",
+                   &year, &month, &day, &hour, &minute, &second) == 6)
+        {
+            parsed = true;
+        }
+    }
+    // Format 3: "MM/DD/YYYY HH:MM:SS"
+    else if (timeString.indexOf('/') > 0 && timeString.indexOf(':') > 0)
+    {
+        if (sscanf(timeString.c_str(), "%d/%d/%d %d:%d:%d",
+                   &month, &day, &year, &hour, &minute, &second) == 6)
+        {
+            parsed = true;
+        }
+    }
+
+    if (!parsed)
+    {
+        Serial.println(F("Error: Invalid time string format"));
+        Serial.println(F("Supported formats:"));
+        Serial.println(F("  YYYY-MM-DD HH:MM:SS"));
+        Serial.println(F("  YYYY,MM,DD,HH,MM,SS"));
+        Serial.println(F("  MM/DD/YYYY HH:MM:SS"));
+        return false;
+    }
+
+    // Validate ranges
+    if (year < 2000 || year > 2099 ||
+        month < 1 || month > 12 ||
+        day < 1 || day > 31 ||
+        hour < 0 || hour > 23 ||
+        minute < 0 || minute > 59 ||
+        second < 0 || second > 59)
+    {
+        Serial.println(F("Error: Time values out of valid range"));
+        return false;
+    }
+
+    // Populate the ts structure
+    rtc_time.year = year;
+    rtc_time.mon = month;
+    rtc_time.mday = day;
+    rtc_time.hour = hour;
+    rtc_time.min = minute;
+    rtc_time.sec = second;
+    rtc_time.wday = calculateDayOfWeek(year, month, day);
+    rtc_time.yday = calculateDayOfYear(year, month, day);
+    rtc_time.isdst = 0; // Assume standard time unless specified
+    rtc_time.year_s = year % 100;
+
+    // Set the RTC
+    DS3231_set(rtc_time);
+
+    // Confirm the setting
+    char confirmation[32];
+    sprintf(confirmation, "%04d-%02d-%02d %02d:%02d:%02d",
+            year, month, day, hour, minute, second);
+    Serial.print(F("RTC time set to: "));
+    Serial.println(confirmation);
+
+    return true;
+}
+
+// Function to get satellite time with retry loop
+bool getSatelliteTime()
+{
+    struct tm t;
+    int err;
+    int maxRetries = 20;
+    int retryCount = 0;
+
+    Serial.println(F("Attempting to get Iridium satellite time..."));
+
+    while (retryCount < maxRetries)
+    {
+        err = modem.getSystemTime(t);
+
+        if (err == ISBD_SUCCESS)
+        {
+            String satTime = String(t.tm_year + 1900) + "-" + String(t.tm_mon + 1) + "-" + String(t.tm_mday) + " " + String(t.tm_hour) + ":" + String(t.tm_min) + ":" + String(t.tm_sec);
+            setRTCFromString(satTime);
+            char buf[32];
+            sprintf(buf, "%d-%02d-%02d %02d:%02d:%02d",
+                    t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+            Serial.print(F("Iridium satellite time: "));
+            Serial.println(buf);
+            return true;
+        }
+        else if (err == ISBD_NO_NETWORK)
+        {
+            retryCount++;
+            Serial.print(F("No network detected. Retry "));
+            Serial.print(retryCount);
+            Serial.print(F("/"));
+            Serial.print(maxRetries);
+            Serial.println(F(". Waiting 10 seconds..."));
+            delay(10000);
+        }
+        else
+        {
+            Serial.print(F("Unexpected error getting time: "));
+            Serial.println(err);
+            retryCount++;
+            delay(5000);
+        }
+    }
+
+    Serial.println(F("Failed to get satellite time after maximum retries."));
+    return false;
+}
+
 // Standard setup( ) function
 void setup()
 {
     Serial.begin(115200);
+    while (!Serial)
+        ; // Wait for serial port to connect
+
+    Serial.println(F("Wigwam River Gauge Starting Up..."));
+
     // Set the sonic sensor as an input
     pinMode(sonicSensor, INPUT);
     digitalWrite(sonicSensor, LOW);
-    // Clear the current alarm (puts DS3231 INT high)
+
+    // Initialize I2C and DS3231 RTC
     Wire.begin();
     Wire.setClock(400000);
     DS3231_init(DS3231_CONTROL_INTCN);
     DS3231_clear_a1f();
+
+    // Initialize Iridium modem and get satellite time
+    if (initializeIridiumModem())
+    {
+        Serial.println(F("Iridium modem initialized successfully."));
+
+        // Get satellite time before entering main loop
+        if (getSatelliteTime())
+        {
+            Serial.println(F("Satellite time retrieved successfully."));
+        }
+        else
+        {
+            Serial.println(F("Warning: Could not retrieve satellite time."));
+        }
+
+        // Power down the modem after getting time
+        Serial.println(F("Putting modem to sleep after time sync..."));
+        modem.sleep();
+        modem.enable9603Npower(false);
+        modem.enableSuperCapCharger(false);
+    }
+    else
+    {
+        Serial.println(F("Warning: Iridium modem initialization failed."));
+    }
+    Serial.println(F("Setup complete. Entering main loop..."));
 }
 
 void loop()
