@@ -83,8 +83,7 @@ void loop()
         arrangeLevelsArray(currentReading);
         createLevelMessage();
         Serial.println((String) "Sending First Message...");
-        // remove comment before merging to main
-        // sendSatelliteMessage(satMessage, resendRequired);
+        sendSatelliteMessage(satMessage, resendRequired);
         initialSetup = false;
         goToSleep();
     }
@@ -96,8 +95,7 @@ void loop()
         {
             Serial.println((String) "!XX! Resending a Message...");
             Serial.println((String) "!XX! The message that needs to be resent to the satellite is " + satMessage);
-            // remove comment before merging to main
-            // sendSatelliteMessage(satMessage, resendRequired);
+            sendSatelliteMessage(satMessage, resendRequired);
             resendRequired = false;
             Serial.println((String) "Resend Flag: " + resendRequired);
             clearLevelsArray();
@@ -123,8 +121,7 @@ void loop()
             arrangeLevelsArray(currentReading);
             createLevelMessage();
             Serial.println((String) "Sending a Message...");
-            // remove comment before merging to main
-            // sendSatelliteMessage(satMessage, resendRequired);
+            sendSatelliteMessage(satMessage, resendRequired);
             // Clear the levels array if the message is sent
             if (!resendRequired)
             {
@@ -220,8 +217,7 @@ int takeAReading()
         rangevalue[i] = pulse / 58;
         Serial.println((String) "Reading is " + (pulse / 58));
         // Wait 5 seconds before taking the next reading -- For testing purposes value is at .5 seconds
-        // remove comment before merging to main
-        // delay(5000);
+        delay(5000);
     }
     // We have 5 samples report the median to the levels array
     isort(rangevalue, arraysize);
