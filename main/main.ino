@@ -183,6 +183,42 @@ bool setRTCFromString(const String &timeString)
         return false;
     }
 
+    // Apply Mountain Daylight Time offset (UTC-6)
+    hour -= 6;
+
+    // Handle hour underflow (date rollback)
+    if (hour < 0)
+    {
+        hour += 24;
+        day--;
+
+        // Handle day underflow (month rollback)
+        if (day < 1)
+        {
+            month--;
+
+            // Handle month underflow (year rollback)
+            if (month < 1)
+            {
+                month = 12; // December
+                year--;
+            }
+
+            // Set day to last day of previous month
+            int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+            // Check for leap year
+            if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)))
+            {
+                day = 29; // February in leap year
+            }
+            else
+            {
+                day = days_in_month[month - 1];
+            }
+        }
+    }
+
     // Populate the ts structure
     rtc_time.year = year;
     rtc_time.mon = month;
@@ -192,7 +228,7 @@ bool setRTCFromString(const String &timeString)
     rtc_time.sec = second;
     rtc_time.wday = calculateDayOfWeek(year, month, day);
     rtc_time.yday = calculateDayOfYear(year, month, day);
-    rtc_time.isdst = 0; // Assume standard time unless specified
+    rtc_time.isdst = 1; // Set to 1 since we're converting to MDT (daylight saving time)
     rtc_time.year_s = year % 100;
 
     // Set the RTC
@@ -202,7 +238,7 @@ bool setRTCFromString(const String &timeString)
     char confirmation[32];
     sprintf(confirmation, "%04d-%02d-%02d %02d:%02d:%02d",
             year, month, day, hour, minute, second);
-    Serial.print(F("RTC time set to: "));
+    Serial.print(F("RTC time set to (MDT): "));
     Serial.println(confirmation);
 
     return true;
