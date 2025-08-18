@@ -75,6 +75,11 @@ bool initializeIridiumModem()
     // Begin satellite modem operation
     Serial.println(F("Starting modem..."));
     modem.setPowerProfile(IridiumSBD::USB_POWER_PROFILE); // Assume 'USB' power (slow recharge)
+
+    // Clear any stale data from serial buffers before starting
+    while (Serial.available() > 0)
+        Serial.read();
+
     err = modem.begin();
     if (err != ISBD_SUCCESS)
     {
@@ -84,6 +89,10 @@ bool initializeIridiumModem()
             Serial.println(F("No modem detected: check wiring."));
         return false;
     }
+
+    // Allow modem to fully initialize before time requests
+    Serial.println(F("Modem initialized. Waiting 3 seconds for stabilization..."));
+    delay(3000);
 
     return true;
 }
@@ -123,65 +132,18 @@ uint16_t calculateDayOfYear(int year, int month, int day)
     return dayOfYear;
 }
 
-// Helper function to set RTC time from string
-// Supports formats: "YYYY-MM-DD HH:MM:SS", "YYYY,MM,DD,HH,MM,SS", "MM/DD/YYYY HH:MM:SS"
-bool setRTCFromString(const String &timeString)
+// Function to set RTC from UTC satellite time with MDT conversion
+bool setRTCFromUTC(const struct tm &utc_time)
 {
     struct ts rtc_time;
-    int year, month, day, hour, minute, second;
 
-    // Try different parsing formats
-    bool parsed = false;
-
-    // Format 1: "YYYY-MM-DD HH:MM:SS"
-    if (timeString.indexOf('-') > 0 && timeString.indexOf(':') > 0)
-    {
-        if (sscanf(timeString.c_str(), "%d-%d-%d %d:%d:%d",
-                   &year, &month, &day, &hour, &minute, &second) == 6)
-        {
-            parsed = true;
-        }
-    }
-    // Format 2: "YYYY,MM,DD,HH,MM,SS"
-    else if (timeString.indexOf(',') > 0)
-    {
-        if (sscanf(timeString.c_str(), "%d,%d,%d,%d,%d,%d",
-                   &year, &month, &day, &hour, &minute, &second) == 6)
-        {
-            parsed = true;
-        }
-    }
-    // Format 3: "MM/DD/YYYY HH:MM:SS"
-    else if (timeString.indexOf('/') > 0 && timeString.indexOf(':') > 0)
-    {
-        if (sscanf(timeString.c_str(), "%d/%d/%d %d:%d:%d",
-                   &month, &day, &year, &hour, &minute, &second) == 6)
-        {
-            parsed = true;
-        }
-    }
-
-    if (!parsed)
-    {
-        Serial.println(F("Error: Invalid time string format"));
-        Serial.println(F("Supported formats:"));
-        Serial.println(F("  YYYY-MM-DD HH:MM:SS"));
-        Serial.println(F("  YYYY,MM,DD,HH,MM,SS"));
-        Serial.println(F("  MM/DD/YYYY HH:MM:SS"));
-        return false;
-    }
-
-    // Validate ranges
-    if (year < 2000 || year > 2099 ||
-        month < 1 || month > 12 ||
-        day < 1 || day > 31 ||
-        hour < 0 || hour > 23 ||
-        minute < 0 || minute > 59 ||
-        second < 0 || second > 59)
-    {
-        Serial.println(F("Error: Time values out of valid range"));
-        return false;
-    }
+    // Convert struct tm to local variables for manipulation
+    int year = utc_time.tm_year + 1900;
+    int month = utc_time.tm_mon + 1; // tm_mon is 0-11, we need 1-12
+    int day = utc_time.tm_mday;
+    int hour = utc_time.tm_hour;
+    int minute = utc_time.tm_min;
+    int second = utc_time.tm_sec;
 
     // Apply Mountain Daylight Time offset (UTC-6)
     hour -= 6;
@@ -254,19 +216,32 @@ bool getSatelliteTime()
 
     Serial.println(F("Attempting to get Iridium satellite time..."));
 
+    // Clear any stale data before time requests (like getTime.ino does)
+    while (Serial.available() > 0)
+        Serial.read();
+
     while (retryCount < maxRetries)
     {
+        // Add delay before each time request to ensure modem is ready
+        if (retryCount > 0)
+        {
+            Serial.println(F("Waiting 5 seconds before retry..."));
+            delay(5000);
+        }
+
         err = modem.getSystemTime(t);
 
         if (err == ISBD_SUCCESS)
         {
-            String satTime = String(t.tm_year + 1900) + "-" + String(t.tm_mon + 1) + "-" + String(t.tm_mday) + " " + String(t.tm_hour) + ":" + String(t.tm_min) + ":" + String(t.tm_sec);
-            setRTCFromString(satTime);
+            // Display the UTC time received from satellite
             char buf[32];
             sprintf(buf, "%d-%02d-%02d %02d:%02d:%02d",
                     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-            Serial.print(F("Iridium satellite time: "));
+            Serial.print(F("Iridium satellite time (UTC): "));
             Serial.println(buf);
+
+            // Set RTC directly from struct tm with MDT conversion
+            setRTCFromUTC(t);
             return true;
         }
         else if (err == ISBD_NO_NETWORK)
@@ -284,7 +259,7 @@ bool getSatelliteTime()
             Serial.print(F("Unexpected error getting time: "));
             Serial.println(err);
             retryCount++;
-            delay(5000);
+            // Removed duplicate delay here since it's now at the top of the loop
         }
     }
 
