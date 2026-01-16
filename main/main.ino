@@ -2,6 +2,7 @@
 #include "ds3231.h"
 #include <IridiumSBD.h>
 #include <avr/sleep.h>
+#include <time.h>
 // 2024,10,20,17,57,50
 //** Set Arduino Values **//
 boolean initialSetup = true;
@@ -47,14 +48,53 @@ char satMessage[50] = {0};
 void setup()
 {
     Serial.begin(115200);
+    while (!Serial)
+        ; // Wait for serial port to connect
+
+    Serial.println(F("Wigwam River Gauge Starting Up..."));
+
     // Set the sonic sensor as an input
     pinMode(sonicSensor, INPUT);
     digitalWrite(sonicSensor, LOW);
-    // Clear the current alarm (puts DS3231 INT high)
+
+    // Initialize I2C and DS3231 RTC
     Wire.begin();
     Wire.setClock(400000);
     DS3231_init(DS3231_CONTROL_INTCN);
     DS3231_clear_a1f();
+
+    // Initialize Iridium modem and get satellite time
+    if (initializeIridiumModem())
+    {
+        Serial.println(F("Iridium modem initialized successfully."));
+
+        // Display current RTC time before satellite sync
+        Serial.println(F("RTC time before satellite sync:"));
+        displayCurrentSystemTime();
+
+        // Get satellite time before entering main loop
+        if (getSatelliteTime())
+        {
+            Serial.println(F("Satellite time retrieved successfully."));
+            Serial.println(F("RTC time after satellite sync:"));
+            displayCurrentSystemTime();
+        }
+        else
+        {
+            Serial.println(F("Warning: Could not retrieve satellite time."));
+        }
+
+        // Power down the modem after getting time
+        Serial.println(F("Putting modem to sleep after time sync..."));
+        modem.sleep();
+        modem.enable9603Npower(false);
+        modem.enableSuperCapCharger(false);
+    }
+    else
+    {
+        Serial.println(F("Warning: Iridium modem initialization failed."));
+    }
+    Serial.println(F("Setup complete. Entering main loop..."));
 }
 
 void loop()
@@ -78,7 +118,8 @@ void loop()
         arrangeLevelsArray(currentReading);
         createLevelMessage();
         Serial.println((String) "Sending First Message...");
-        sendSatelliteMessage(satMessage, resendRequired);
+        // remove comments before merging to main
+        // sendSatelliteMessage(satMessage, resendRequired);
         initialSetup = false;
         goToSleep();
     }
@@ -90,7 +131,8 @@ void loop()
         {
             Serial.println((String) "!XX! Resending a Message...");
             Serial.println((String) "!XX! The message that needs to be resent to the satellite is " + satMessage);
-            sendSatelliteMessage(satMessage, resendRequired);
+            // remove comments before merging to main
+            // sendSatelliteMessage(satMessage, resendRequired);
             resendRequired = false;
             Serial.println((String) "Resend Flag: " + resendRequired);
             clearLevelsArray();
@@ -116,7 +158,8 @@ void loop()
             arrangeLevelsArray(currentReading);
             createLevelMessage();
             Serial.println((String) "Sending a Message...");
-            sendSatelliteMessage(satMessage, resendRequired);
+            // remove comments before merging to main
+            // sendSatelliteMessage(satMessage, resendRequired);
             // Clear the levels array if the message is sent
             if (!resendRequired)
             {
@@ -142,6 +185,299 @@ void loop()
         }
         Serial.println();
         goToSleep();
+    }
+}
+
+// Function to initialize the Iridium modem
+bool initializeIridiumModem()
+{
+    int err;
+
+    // Check that the Qwiic Iridium is attached
+    if (!modem.isConnected())
+    {
+        Serial.println(F("Qwiic Iridium is not connected! Please check wiring."));
+        return false;
+    }
+
+    // Enable the supercapacitor charger
+    Serial.println(F("Enabling the supercapacitor charger..."));
+    modem.enableSuperCapCharger(true);
+
+    // Wait for the supercapacitor charger PGOOD signal to go high
+    while (!modem.checkSuperCapCharger())
+    {
+        Serial.println(F("Waiting for supercapacitors to charge..."));
+        delay(1000);
+    }
+    Serial.println(F("Supercapacitors charged!"));
+
+    // Enable power for the 9603N
+    Serial.println(F("Enabling 9603N power..."));
+    modem.enable9603Npower(true);
+
+    // Begin satellite modem operation
+    Serial.println(F("Starting modem..."));
+    modem.setPowerProfile(IridiumSBD::USB_POWER_PROFILE); // Assume 'USB' power (slow recharge)
+
+    // Clear any stale data from serial buffers before starting
+    while (Serial.available() > 0)
+        Serial.read();
+
+    err = modem.begin();
+    if (err != ISBD_SUCCESS)
+    {
+        Serial.print(F("Begin failed: error "));
+        Serial.println(err);
+        if (err == ISBD_NO_MODEM_DETECTED)
+            Serial.println(F("No modem detected: check wiring."));
+        return false;
+    }
+
+    // Allow modem to fully initialize before time requests
+    Serial.println(F("Modem initialized. Waiting 3 seconds for stabilization..."));
+    delay(3000);
+
+    return true;
+}
+
+// Helper function to calculate day of week (0=Sunday, 1=Monday, etc.)
+uint8_t calculateDayOfWeek(int year, int month, int day)
+{
+    // Zeller's congruence algorithm
+    if (month < 3)
+    {
+        month += 12;
+        year--;
+    }
+    int k = year % 100;
+    int j = year / 100;
+    int h = (day + ((13 * (month + 1)) / 5) + k + (k / 4) + (j / 4) - 2 * j) % 7;
+    return (h + 5) % 7 + 1; // Convert to 1-7 range (1=Sunday)
+}
+
+// Helper function to calculate day of year
+uint16_t calculateDayOfYear(int year, int month, int day)
+{
+    int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    // Check for leap year
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))
+    {
+        days_in_month[1] = 29;
+    }
+
+    int dayOfYear = day;
+    for (int i = 0; i < month - 1; i++)
+    {
+        dayOfYear += days_in_month[i];
+    }
+
+    return dayOfYear;
+}
+
+// Function to set RTC from UTC satellite time with MDT conversion
+bool setRTCFromUTC(const struct tm &utc_time)
+{
+    struct ts rtc_time;
+
+    // Convert struct tm to local variables for manipulation
+    int year = utc_time.tm_year + 1900;
+    int month = utc_time.tm_mon + 1; // tm_mon is 0-11, we need 1-12
+    int day = utc_time.tm_mday;
+    int hour = utc_time.tm_hour;
+    int minute = utc_time.tm_min;
+    int second = utc_time.tm_sec;
+
+    // Show the UTC time before conversion
+    char utc_buf[32];
+    sprintf(utc_buf, "%04d-%02d-%02d %02d:%02d:%02d",
+            year, month, day, hour, minute, second);
+    Serial.print(F("UTC time before MDT conversion: "));
+    Serial.println(utc_buf);
+
+    // Apply Mountain Daylight Time offset (UTC-6)
+    hour -= 6;
+
+    // Handle hour underflow (date rollback)
+    if (hour < 0)
+    {
+        hour += 24;
+        day--;
+
+        // Handle day underflow (month rollback)
+        if (day < 1)
+        {
+            month--;
+
+            // Handle month underflow (year rollback)
+            if (month < 1)
+            {
+                month = 12; // December
+                year--;
+            }
+
+            // Set day to last day of previous month
+            int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+            // Check for leap year
+            if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)))
+            {
+                day = 29; // February in leap year
+            }
+            else
+            {
+                day = days_in_month[month - 1];
+            }
+        }
+    }
+
+    // Populate the ts structure
+    rtc_time.year = year;
+    rtc_time.mon = month;
+    rtc_time.mday = day;
+    rtc_time.hour = hour;
+    rtc_time.min = minute;
+    rtc_time.sec = second;
+    rtc_time.wday = calculateDayOfWeek(year, month, day);
+    rtc_time.yday = calculateDayOfYear(year, month, day);
+    rtc_time.isdst = 1; // Set to 1 since we're converting to MDT (daylight saving time)
+    rtc_time.year_s = year % 100;
+
+    // Set the RTC
+    DS3231_set(rtc_time);
+
+    // Confirm the setting
+    char confirmation[32];
+    sprintf(confirmation, "%04d-%02d-%02d %02d:%02d:%02d",
+            year, month, day, hour, minute, second);
+    Serial.print(F("RTC time set to (MDT): "));
+    Serial.println(confirmation);
+
+    // Read back the RTC time to verify it was set correctly
+    struct ts verify_time;
+    DS3231_get(&verify_time);
+    char verify_buf[32];
+    sprintf(verify_buf, "%04d-%02d-%02d %02d:%02d:%02d",
+            verify_time.year, verify_time.mon, verify_time.mday,
+            verify_time.hour, verify_time.min, verify_time.sec);
+    Serial.print(F("RTC verification read: "));
+    Serial.println(verify_buf);
+
+    return true;
+}
+
+// Function to display current system time for comparison
+void displayCurrentSystemTime()
+{
+    struct ts current_time;
+    DS3231_get(&current_time);
+
+    char time_buf[32];
+    sprintf(time_buf, "%04d-%02d-%02d %02d:%02d:%02d",
+            current_time.year, current_time.mon, current_time.mday,
+            current_time.hour, current_time.min, current_time.sec);
+    Serial.print(F("Current RTC time (MDT): "));
+    Serial.println(time_buf);
+}
+
+// Function to get satellite time with retry loop
+bool getSatelliteTime()
+{
+    struct tm t;
+    int err;
+    int maxRetries = 3; // Reduced for testing - get 3 readings as requested
+    int retryCount = 0;
+    bool timeRetrieved = false;
+
+    Serial.println(F("Attempting to get Iridium satellite time..."));
+
+    // Clear any stale data before time requests (like getTime.ino does)
+    while (Serial.available() > 0)
+        Serial.read();
+
+    // Force modem to acquire fresh network time by clearing any cached time
+    Serial.println(F("Clearing modem buffers and forcing fresh time acquisition..."));
+    modem.clearBuffers(ISBD_CLEAR_MO | ISBD_CLEAR_MT);
+    delay(2000);
+
+    while (retryCount < maxRetries)
+    {
+        // Add delay before each time request to ensure modem is ready
+        if (retryCount > 0)
+        {
+            Serial.println(F("Waiting 10 seconds before retry..."));
+            delay(10000);
+        }
+        else
+        {
+            // Even on first attempt, wait a bit for network acquisition
+            Serial.println(F("Waiting 5 seconds for network acquisition..."));
+            delay(5000);
+        }
+
+        Serial.print(F("Time request attempt #"));
+        Serial.println(retryCount + 1);
+        err = modem.getSystemTime(t);
+
+        if (err == ISBD_SUCCESS)
+        {
+            // Display the UTC time received from satellite
+            char buf[32];
+            sprintf(buf, "%d-%02d-%02d %02d:%02d:%02d",
+                    t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+            Serial.print(F("Iridium satellite time (UTC) - Reading #"));
+            Serial.print(retryCount + 1);
+            Serial.print(F(": "));
+            Serial.println(buf);
+
+            // Validate that the time is reasonable (not obviously stale)
+            // Check if year is reasonable
+            if (t.tm_year + 1900 < 2024 || t.tm_year + 1900 > 2030)
+            {
+                Serial.println(F("Warning: Received time appears invalid (bad year)"));
+                retryCount++;
+                continue;
+            }
+
+            // Store the time for potential use, but don't set RTC until we have the final reading
+            timeRetrieved = true;
+
+            // If this is the final reading (3rd attempt), set the RTC
+            if (retryCount == maxRetries - 1)
+            {
+                Serial.println(F("Using final time reading to set RTC..."));
+                setRTCFromUTC(t);
+                return true;
+            }
+        }
+        else if (err == ISBD_NO_NETWORK)
+        {
+            Serial.print(F("No network detected on attempt #"));
+            Serial.print(retryCount + 1);
+            Serial.println(F(". Waiting 15 seconds for network acquisition..."));
+            delay(15000);
+        }
+        else
+        {
+            Serial.print(F("Unexpected error getting time on attempt #"));
+            Serial.print(retryCount + 1);
+            Serial.print(F(": "));
+            Serial.println(err);
+        }
+
+        retryCount++;
+    }
+
+    if (timeRetrieved)
+    {
+        Serial.println(F("At least one time reading was successful, but failed to complete all 3 readings."));
+        return false;
+    }
+    else
+    {
+        Serial.println(F("Failed to get satellite time after maximum retries."));
+        return false;
     }
 }
 
@@ -401,21 +737,22 @@ void sendSatelliteMessage(const String &message, bool &resendRequired)
     // Send the message
     Serial.println(F("Trying to send the message.  This might take several minutes."));
     Serial.println((String) "The message being sent to the satellite is " + satMessage);
-    err = modem.sendSBDText(satMessage);
-    if (err != ISBD_SUCCESS)
-    {
-        resendRequired = true;
-        Serial.println((String) "Resend flag value set");
-        Serial.print(F("sendSBDText failed: error "));
-        Serial.println(err);
-        if (err == ISBD_SENDRECEIVE_TIMEOUT)
-            Serial.println(F("Message Sending Failed"));
-    }
+    // remove comments before merging to main
+    // err = modem.sendSBDText(satMessage);
+    // if (err != ISBD_SUCCESS)
+    // {
+    //     resendRequired = true;
+    //     Serial.println((String) "Resend flag value set");
+    //     Serial.print(F("sendSBDText failed: error "));
+    //     Serial.println(err);
+    //     if (err == ISBD_SENDRECEIVE_TIMEOUT)
+    //         Serial.println(F("Message Sending Failed"));
+    // }
 
-    else
-    {
-        Serial.println(F("Satellite message sent!"));
-    }
+    // else
+    // {
+    //     Serial.println(F("Satellite message sent!"));
+    // }
 
     // Clear the Mobile Originated message buffer
     Serial.println(F("Clearing the MO buffer."));
