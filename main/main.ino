@@ -33,15 +33,17 @@ uint8_t wake_HOUR;
 uint8_t wake_MINUTE;
 uint8_t wake_SECOND;
 #define BUFF_MAX 256
+float temp;
 
 struct ts t;
 
 // Variables for sending the message
 String lvl_message;
 int levels[REPORT_PERIOD] = {0};
+float temperatures[REPORT_PERIOD] = {0};
 int txMsgLen;
 int j = 0;
-char satMessage[50] = {0};
+char satMessage[100] = {0};
 
 // Standard setup( ) function
 void setup()
@@ -61,9 +63,12 @@ void loop()
 {
     // Get the current time
     DS3231_get(&t);
+    // Get the temperature
+    temp = DS3231_get_treg();
     // If the the current hour is not the hour in which a signal is to be sent run this code
     // Print Current Time to Serial Monitor t.hour, t.min, t.sec
     Serial.println((String) "Current Time: " + t.hour + ":" + t.min + ":" + t.sec);
+    Serial.println((String) "Current Temperature: " + temp);
     // print the resending flag
     Serial.println((String) "Resend Flag: " + resendRequired);
     sendSatMessage = (t.hour == 8 || t.hour == 20 || resendRequired);
@@ -217,6 +222,8 @@ int takeAReading()
     // We have 5 samples report the median to the levels array
     isort(rangevalue, arraysize);
     modE = mode(rangevalue, arraysize);
+    // Get temperature at time of reading
+    temp = DS3231_get_treg();
     // Shut off the sensor
     pulseIn(sonicSensor, LOW);
     return modE;
@@ -227,7 +234,8 @@ void arrangeLevelsArray(int currentLevel)
     int hourPosition = (t.hour - 8 + 24) % 24; // Adjust the hour to be between 0 and 23
     hourPosition = (hourPosition + 11) % 12;   // Wrap around to the last position in the 12-hour array
     levels[hourPosition] = currentLevel;
-    Serial.println((String) "The mode at " + ((hourPosition + 1) % 12) + " is " + levels[hourPosition]);
+    temperatures[hourPosition] = temp;
+    Serial.println((String) "The mode at " + ((hourPosition + 1) % 12) + " is " + levels[hourPosition] + " with temp " + temperatures[hourPosition]);
 }
 
 void clearLevelsArray()
@@ -235,6 +243,7 @@ void clearLevelsArray()
     for (int i = 0; i < REPORT_PERIOD; i++)
     {
         levels[i] = 0;
+        temperatures[i] = 0;
     }
 }
 
@@ -244,6 +253,8 @@ void createLevelMessage()
     for (j = 0; j < REPORT_PERIOD; j++)
     {
         lvl_message.concat(levels[j]);
+        lvl_message.concat("|");
+        lvl_message.concat(String(temperatures[j], 1)); // Convert float to string with 1 decimal place
         if (j < (REPORT_PERIOD - 1))
         {
             lvl_message.concat(",");

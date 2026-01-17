@@ -132,6 +132,7 @@ void setup()
   // Send the message
   Serial.println(F("Trying to send the message.  This might take several minutes."));
   err = modem.sendSBDText("[125,125,125,125,125,125,125,125,125,125,125,125]");
+//  err = modem.sendSBDText("[645|12.3,646|12.5,647|13.1,648|13.8,649|14.2,650|14.5,651|14.8,652|15.1,653|15.3,654|15.0,655|14.7,656|14.2]");
   if (err != ISBD_SUCCESS)
   {
     Serial.print(F("sendSBDText failed: error "));  
